@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Add Product{% endblock %}
+{% block content %}
+<div class="form-container">
+<h2>Add Product</h2>
+<form method="POST" enctype="multipart/form-data">
+    <input type="text" name="name" placeholder="Product Name" required>
+    <input type="number" step="0.01" name="price" placeholder="Price" required>
+    <textarea name="description" placeholder="Description"></textarea>
+    <select name="category" required>
+        {% for cat in categories %}
+        <option value="{{ cat.id }}">{{ cat.name }}</option>
+        {% endfor %}
+    </select>
+    <input type="text" name="whatsapp" placeholder="WhatsApp Number" required>
+    <label>Cover Image:</label>
+    <input type="file" name="cover_image" required>
+    <label>Screenshots:</label>
+    <input type="file" name="screenshots" multiple>
+    <button type="submit" class="btn">Add Product</button>
+</form>
+</div>
+{% endblock %}
