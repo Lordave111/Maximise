@@ -6,16 +6,27 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
 
+# ======================
+# BASE SETUP
+# ======================
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "supersecretkey"
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///store.db"
-app.config["UPLOAD_FOLDER"] = "static/uploads"
+
+# Create a safe path for SQLite
+basedir = os.path.abspath(os.path.dirname(__file__))
+db_path = os.path.join(basedir, "store.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# Ensure uploads folder exists
+os.makedirs(os.path.join(basedir, "static", "uploads"), exist_ok=True)
+UPLOAD_FOLDER = os.path.join("static", "uploads")
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
-
 
 # ======================
 # MODELS
@@ -66,149 +77,69 @@ def load_user(user_id):
 
 
 # ======================
-# DEMO BACKEND DATA
+# DEMO DATA
 # ======================
 
 @app.before_first_request
 def setup():
     db.create_all()
-
+    
+    # Demo products if none exist
     if Product.query.count() == 0:
         demo_products = [
-            {
-                "name": "Purple Gaming Headset",
-                "description": "RGB wireless headset",
-                "price": 25000,
-                "stock": 10,
-                "category": "Electronics",
-                "image": "default.png"
-            },
-            {
-                "name": "Pink Mechanical Keyboard",
-                "description": "Premium clicky keyboard",
-                "price": 45000,
-                "stock": 8,
-                "category": "Electronics",
-                "image": "default.png"
-            },
-            {
-                "name": "Black Smart Watch",
-                "description": "Fitness smartwatch",
-                "price": 60000,
-                "stock": 5,
-                "category": "Wearables",
-                "image": "default.png"
-            },
-            {
-                "name": "Purple Hoodie",
-                "description": "Premium cotton hoodie",
-                "price": 20000,
-                "stock": 15,
-                "category": "Fashion",
-                "image": "default.png"
-            }
+            {"name":"Purple Gaming Headset","description":"RGB wireless headset","price":25000,"stock":10,"category":"Electronics","image":"default.png"},
+            {"name":"Pink Mechanical Keyboard","description":"Premium clicky keyboard","price":45000,"stock":8,"category":"Electronics","image":"default.png"},
+            {"name":"Black Smart Watch","description":"Fitness smartwatch","price":60000,"stock":5,"category":"Wearables","image":"default.png"},
+            {"name":"Purple Hoodie","description":"Premium cotton hoodie","price":20000,"stock":15,"category":"Fashion","image":"default.png"}
         ]
-
         for item in demo_products:
             db.session.add(Product(**item))
 
-        admin = User(username="admin", email="admin@mail.com", is_admin=True)
-        admin.set_password("admin123")
-        db.session.add(admin)
+        # Admin account
+        if not User.query.filter_by(email="admin@mail.com").first():
+            admin = User(username="admin", email="admin@mail.com", is_admin=True)
+            admin.set_password("admin123")
+            db.session.add(admin)
 
         db.session.commit()
 
 
 # ======================
-# HOME + SEARCH + FILTER
+# ROUTES
 # ======================
 
+# Home + Search + Filter
 @app.route("/")
 def home():
     search = request.args.get("search")
     category = request.args.get("category")
-
     products = Product.query
-
     if search:
         products = products.filter(Product.name.contains(search))
-
     if category:
         products = products.filter_by(category=category)
-
     return render_template("home.html", products=products.all())
 
-
-# ======================
-# ADD PRODUCT (ADMIN UPLOAD)
-# ======================
-
-# ======================
-# EDIT PRODUCT (ADMIN)
-
-# ======================
-# DELETE PRODUCT (ADMIN)
-# ======================
-@app.route("/admin/delete-product/<int:id>", methods=["POST"])
+# Admin dashboard
+@app.route("/admin")
 @login_required
-def delete_product(id):
+def admin():
     if not current_user.is_admin:
         return "Unauthorized"
+    products = Product.query.all()
+    orders = Order.query.all()
+    return render_template("admin.html", products=products, orders=orders)
 
-    product = Product.query.get(id)
-    if product:
-        # Remove the image file if it's not the default
-        if product.image != "default.png":
-            image_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
-            if os.path.exists(image_path):
-                os.remove(image_path)
-
-        db.session.delete(product)
-        db.session.commit()
-
-    return redirect(url_for("admin"))# ======================
-    
-@app.route("/admin/edit-product/<int:id>", methods=["GET", "POST"])
-@login_required
-def edit_product(id):
-    if not current_user.is_admin:
-        return "Unauthorized"
-
-    product = Product.query.get_or_404(id)
-
-    if request.method == "POST":
-        product.name = request.form["name"]
-        product.description = request.form["description"]
-        product.price = float(request.form["price"])
-        product.stock = int(request.form["stock"])
-        product.category = request.form["category"]
-
-        file = request.files.get("image")
-        if file and file.filename != "":
-            # Remove old image if not default
-            if product.image != "default.png":
-                old_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
-                if os.path.exists(old_path):
-                    os.remove(old_path)
-
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-            product.image = filename
-
-        db.session.commit()
-        return redirect(url_for("admin"))
-
-    return render_template("edit_product.html", product=product)
+# Add Product
 @app.route("/admin/add-product", methods=["POST"])
 @login_required
 def add_product():
     if not current_user.is_admin:
         return "Unauthorized"
-
     file = request.files["image"]
-    filename = secure_filename(file.filename)
-    file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
-
+    filename = secure_filename(file.filename) if file else "default.png"
+    if file:
+        file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
     product = Product(
         name=request.form["name"],
         description=request.form["description"],
@@ -217,45 +148,63 @@ def add_product():
         category=request.form["category"],
         image=filename
     )
-
     db.session.add(product)
     db.session.commit()
-
     return redirect(url_for("admin"))
 
-
-# ======================
-# ADMIN PAGE
-# ======================
-
-@app.route("/admin")
+# Edit Product
+@app.route("/admin/edit-product/<int:id>", methods=["GET", "POST"])
 @login_required
-def admin():
+def edit_product(id):
     if not current_user.is_admin:
         return "Unauthorized"
+    product = Product.query.get_or_404(id)
+    if request.method == "POST":
+        product.name = request.form["name"]
+        product.description = request.form["description"]
+        product.price = float(request.form["price"])
+        product.stock = int(request.form["stock"])
+        product.category = request.form["category"]
+        file = request.files.get("image")
+        if file and file.filename != "":
+            if product.image != "default.png":
+                old_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+            product.image = filename
+        db.session.commit()
+        return redirect(url_for("admin"))
+    return render_template("edit_product.html", product=product)
 
-    products = Product.query.all()
-    orders = Order.query.all()
-    return render_template("admin.html", products=products, orders=orders)
+# Delete Product
+@app.route("/admin/delete-product/<int:id>", methods=["POST"])
+@login_required
+def delete_product(id):
+    if not current_user.is_admin:
+        return "Unauthorized"
+    product = Product.query.get(id)
+    if product:
+        if product.image != "default.png":
+            image_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+        db.session.delete(product)
+        db.session.commit()
+    return redirect(url_for("admin"))
 
-
-# ======================
-# CART + CHECKOUT
-# ======================
-
+# Cart
 @app.route("/add-to-cart/<int:id>")
 @login_required
 def add_to_cart(id):
     item = CartItem.query.filter_by(user_id=current_user.id, product_id=id).first()
-
     if item:
         item.quantity += 1
     else:
         db.session.add(CartItem(user_id=current_user.id, product_id=id, quantity=1))
-
     db.session.commit()
     return redirect(url_for("cart"))
-
 
 @app.route("/cart")
 @login_required
@@ -263,39 +212,28 @@ def cart():
     items = CartItem.query.filter_by(user_id=current_user.id).all()
     total = 0
     detailed = []
-
     for item in items:
         product = Product.query.get(item.product_id)
         subtotal = product.price * item.quantity
         total += subtotal
         detailed.append({"product": product, "quantity": item.quantity, "subtotal": subtotal})
-
     return render_template("cart.html", items=detailed, total=total)
-
 
 @app.route("/checkout")
 @login_required
 def checkout():
     items = CartItem.query.filter_by(user_id=current_user.id).all()
     total = sum(Product.query.get(i.product_id).price * i.quantity for i in items)
-
     order = Order(user_id=current_user.id, total=total)
     db.session.add(order)
-
     for item in items:
         product = Product.query.get(item.product_id)
         product.stock -= item.quantity
         db.session.delete(item)
-
     db.session.commit()
-
     return render_template("checkout.html", total=total)
 
-
-# ======================
-# AUTH
-# ======================
-
+# Authentication
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -306,7 +244,6 @@ def register():
         return redirect(url_for("login"))
     return render_template("register.html")
 
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -316,13 +253,16 @@ def login():
             return redirect(url_for("home"))
     return render_template("login.html")
 
-
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     return redirect(url_for("home"))
 
-
+# ======================
+# RUN
+# ======================
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Bind to PORT for Render
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
