@@ -1,0 +1,29 @@
+body {
+    background: radial-gradient(circle at top, #1a001f, #000000);
+    color: white;
+    font-family: Arial;
+}
+
+.card {
+    background: #14001a;
+    border: 1px solid #6a0dad;
+    padding: 15px;
+    border-radius: 10px;
+    margin: 10px;
+}
+
+.card img {
+    width: 100%;
+    height: 180px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.btn {
+    background: linear-gradient(90deg, #6a0dad, #ff00aa);
+    border: none;
+    padding: 8px 12px;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+}
