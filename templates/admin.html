@@ -1,49 +1,55 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard{% endblock %}
+
 {% block content %}
+<div class="admin-container">
+    <h2>Admin Dashboard</h2>
 
-<h2>Admin Dashboard</h2>
+    <section class="product-section">
+        <h3>Products</h3>
+        <div class="product-grid">
+            {% for product in products %}
+            <div class="product-card admin-card">
+                <img src="{{ url_for('static', filename='uploads/' ~ product.image) }}" alt="{{ product.name }}">
+                <h3>{{ product.name }}</h3>
+                <p>{{ product.category }}</p>
+                <p class="price">₦{{ product.price }}</p>
+                <div class="admin-actions">
+                    <a href="{{ url_for('edit_product', id=product.id) }}" class="btn-edit">Edit</a>
+                    <form action="{{ url_for('delete_product', id=product.id) }}" method="POST" style="display:inline;">
+                        <button type="submit" class="btn-delete">Delete</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
 
-<h3>Add Product</h3>
-<form method="POST" action="/admin/add-product" enctype="multipart/form-data">
-    <input type="text" name="name" placeholder="Product Name" required>
-    <input type="text" name="description" placeholder="Description" required>
-    <input type="number" name="price" placeholder="Price" required>
-    <input type="number" name="stock" placeholder="Stock" required>
-    <input type="text" name="category" placeholder="Category" required>
-    <input type="file" name="image" required>
-    <button class="btn">Add Product</button>
-</form>
+        <h3>Add Product</h3>
+        <div class="form-box admin-add-form">
+            <form method="POST" action="{{ url_for('add_product') }}" enctype="multipart/form-data">
+                <input type="text" name="name" placeholder="Product Name" required>
+                <input type="text" name="category" placeholder="Category" required>
+                <input type="number" name="price" placeholder="Price" required>
+                <input type="number" name="stock" placeholder="Stock" required>
+                <input type="file" name="image">
+                <button type="submit">Add Product</button>
+            </form>
+        </div>
+    </section>
 
-<hr>
-
-<h3>All Products</h3>
-<div class="products-grid">
-{% for product in products %}
-<div class="card">
-    <img src="{{ url_for('static', filename='uploads/' + product.image) }}">
-    <h4>{{ product.name }}</h4>
-    <p>₦{{ product.price }}</p>
-    <p>Stock: {{ product.stock }}</p>
-
-    <a href="/admin/edit-product/{{ product.id }}">
-        <button class="btn edit">Edit</button>
-    </a>
-    <form action="/admin/delete-product/{{ product.id }}" method="POST">
-        <button class="btn delete">Delete</button>
-    </form>
+    <section class="orders-section">
+        <h3>Orders</h3>
+        <div class="orders-grid">
+            {% for order in orders %}
+            <div class="order-card">
+                <p><strong>Order ID:</strong> {{ order.id }}</p>
+                <p><strong>User ID:</strong> {{ order.user_id }}</p>
+                <p><strong>Total:</strong> ₦{{ order.total }}</p>
+                <p><strong>Status:</strong> {{ order.status }}</p>
+                <p><strong>Created:</strong> {{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
 </div>
-{% endfor %}
-</div>
-
-<hr>
-
-<h3>Orders</h3>
-{% for order in orders %}
-<div class="card">
-    <p>Order ID: {{ order.id }}</p>
-    <p>Total: ₦{{ order.total }}</p>
-    <p>Status: {{ order.status }}</p>
-</div>
-{% endfor %}
-
 {% endblock %}
