@@ -5,29 +5,35 @@
 
 <h3>Add Product</h3>
 <form method="POST" action="/admin/add-product" enctype="multipart/form-data">
-    <input type="text" name="name" placeholder="Product Name" required><br><br>
-    <input type="text" name="description" placeholder="Description" required><br><br>
-    <input type="number" name="price" placeholder="Price" required><br><br>
-    <input type="number" name="stock" placeholder="Stock" required><br><br>
-    <input type="text" name="category" placeholder="Category" required><br><br>
-    <input type="file" name="image" required><br><br>
+    <input type="text" name="name" placeholder="Product Name" required>
+    <input type="text" name="description" placeholder="Description" required>
+    <input type="number" name="price" placeholder="Price" required>
+    <input type="number" name="stock" placeholder="Stock" required>
+    <input type="text" name="category" placeholder="Category" required>
+    <input type="file" name="image" required>
     <button class="btn">Add Product</button>
 </form>
 
 <hr>
 
 <h3>All Products</h3>
+<div class="products-grid">
 {% for product in products %}
 <div class="card">
+    <img src="{{ url_for('static', filename='uploads/' + product.image) }}">
     <h4>{{ product.name }}</h4>
     <p>₦{{ product.price }}</p>
     <p>Stock: {{ product.stock }}</p>
 
-    <form action="/admin/delete-product/{{ product.id }}" method="POST" style="margin-top:10px;">
-        <button class="btn" style="background:red;">Delete</button>
+    <a href="/admin/edit-product/{{ product.id }}">
+        <button class="btn edit">Edit</button>
+    </a>
+    <form action="/admin/delete-product/{{ product.id }}" method="POST">
+        <button class="btn delete">Delete</button>
     </form>
 </div>
 {% endfor %}
+</div>
 
 <hr>
 
