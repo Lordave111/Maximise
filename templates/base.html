@@ -4,30 +4,48 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Maximise{% endblock %}</title>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link href="https://cdn.jsdelivr.net/npm/remixicon/fonts/remixicon.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.css"/>
 </head>
 <body>
-<nav class="navbar">
-    <div class="logo">
-        <a href="{{ url_for('home') }}">Maximise</a>
-    </div>
-    <ul class="nav-links">
-        <li><a href="{{ url_for('home') }}">Home</a></li>
-        {% if current_user.is_authenticated %}
-            <li><a href="{{ url_for('cart') }}">Cart</a></li>
-            {% if current_user.is_admin %}
-                <li><a href="{{ url_for('admin') }}">Admin</a></li>
+<header>
+    <nav class="navbar">
+        <a href="{{ url_for('home') }}" class="logo">MarketX</a>
+        <ul class="nav-links">
+            {% if current_user.is_authenticated %}
+                {% if current_user.role=='admin' %}
+                    <li><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                {% elif current_user.role=='seller' %}
+                    <li><a href="{{ url_for('seller_dashboard') }}">Seller Dashboard</a></li>
+                {% endif %}
+                <li><a href="{{ url_for('logout') }}">Logout</a></li>
+            {% else %}
+                <li><a href="{{ url_for('login') }}">Login</a></li>
+                <li><a href="{{ url_for('register') }}">Register</a></li>
             {% endif %}
-            <li><a href="{{ url_for('logout') }}">Logout</a></li>
-        {% else %}
-            <li><a href="{{ url_for('login') }}">Login</a></li>
-            <li><a href="{{ url_for('register') }}">Sign Up</a></li>
-        {% endif %}
-    </ul>
-</nav>
+        </ul>
+        <div class="toggle-dark"><i class="ri-moon-line"></i></div>
+    </nav>
+</header>
 <main>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <div class="flash-msg">
+                {% for msg in messages %}
+                    <p>{{ msg }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
     {% block content %}{% endblock %}
 </main>
+<script>
+const toggle = document.querySelector('.toggle-dark');
+toggle.addEventListener('click', ()=>{
+    document.body.classList.toggle('dark');
+});
+</script>
 </body>
 </html>
