@@ -1,37 +1,18 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
+{% block title %}Home{% endblock %}
+
 {% block content %}
-
-<h2 style="text-align:center;">Our Products</h2>
-
-<form method="GET" style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
-    <input type="text" name="search" placeholder="Search products">
-    <select name="category">
-        <option value="">All Categories</option>
-        <option value="Electronics">Electronics</option>
-        <option value="Wearables">Wearables</option>
-        <option value="Fashion">Fashion</option>
-    </select>
-    <button class="btn">Filter</button>
-</form>
-
-<div class="products-grid">
+<div class="product-grid">
     {% for product in products %}
-    <div class="card">
-        <img src="{{ url_for('static', filename='uploads/' + product.image) }}">
+    <div class="product-card">
+        <img src="{{ url_for('static', filename='uploads/' ~ product.image) }}" alt="{{ product.name }}">
         <h3>{{ product.name }}</h3>
-        <p>{{ product.description }}</p>
-        <p>₦{{ product.price }}</p>
-        <p>Stock: {{ product.stock }}</p>
-
-        {% if product.stock > 0 %}
-        <a href="/add-to-cart/{{ product.id }}">
-            <button class="btn">Add to Cart</button>
-        </a>
-        {% else %}
-        <p style="color:red;">Out of Stock</p>
-        {% endif %}
+        <p>{{ product.category }}</p>
+        <p class="price">₦{{ product.price }}</p>
+        <form action="{{ url_for('add_to_cart', id=product.id) }}">
+            <button type="submit">Add to Cart</button>
+        </form>
     </div>
     {% endfor %}
 </div>
-
 {% endblock %}
