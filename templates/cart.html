@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Your Cart</h2>
+
+{% for item in items %}
+<div class="card">
+    <h3>{{ item.product.name }}</h3>
+    <p>Quantity: {{ item.quantity }}</p>
+    <p>Subtotal: ₦{{ item.subtotal }}</p>
+</div>
+{% endfor %}
+
+<h3>Total: ₦{{ total }}</h3>
+
+<a href="/checkout">
+    <button class="btn">Checkout</button>
+</a>
+
+{% endblock %}
