@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Admin Dashboard</h2>
+
+<h3>Add Product</h3>
+<form method="POST" action="/admin/add-product" enctype="multipart/form-data">
+    <input type="text" name="name" placeholder="Product Name" required><br><br>
+    <input type="text" name="description" placeholder="Description" required><br><br>
+    <input type="number" name="price" placeholder="Price" required><br><br>
+    <input type="number" name="stock" placeholder="Stock" required><br><br>
+    <input type="text" name="category" placeholder="Category" required><br><br>
+    <input type="file" name="image" required><br><br>
+    <button class="btn">Add Product</button>
+</form>
+
+<hr>
+
+<h3>All Products</h3>
+{% for product in products %}
+<div class="card">
+    <h4>{{ product.name }}</h4>
+    <p>₦{{ product.price }}</p>
+    <p>Stock: {{ product.stock }}</p>
+</div>
+{% endfor %}
+
+<hr>
+
+<h3>Orders</h3>
+{% for order in orders %}
+<div class="card">
+    <p>Order ID: {{ order.id }}</p>
+    <p>Total: ₦{{ order.total }}</p>
+    <p>Status: {{ order.status }}</p>
+</div>
+{% endfor %}
+
+{% endblock %}
