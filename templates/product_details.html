@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }}{% endblock %}
+{% block content %}
+<div class="product-detail">
+    <div class="left">
+        <img src="{{ product.cover_image }}" alt="{{ product.name }}">
+        {% if screenshots %}
+        <div class="swiper">
+            <div class="swiper-wrapper">
+                {% for s in screenshots %}
+                <div class="swiper-slide"><img src="{{ s }}"></div>
+                {% endfor %}
+            </div>
+            <div class="swiper-pagination"></div>
+            <div class="swiper-button-prev"></div>
+            <div class="swiper-button-next"></div>
+        </div>
+        {% endif %}
+    </div>
+    <div class="right">
+        <h2>{{ product.name }}</h2>
+        <p class="price">₦{{ product.price }}</p>
+        <p>{{ product.description }}</p>
+        {% if not product.is_sold_out %}
+            <a href="{{ url_for('buy_product', id=product.id) }}" class="btn">Buy via WhatsApp</a>
+        {% else %}
+            <p class="sold-out">Sold Out</p>
+        {% endif %}
+    </div>
+</div>
+<script>
+const swiper = new Swiper('.swiper', {
+  loop:true,
+  navigation: {
+    nextEl: '.swiper-button-next',
+    prevEl: '.swiper-button-prev',
+  },
+  pagination:{el:'.swiper-pagination',clickable:true}
+});
+</script>
+{% endblock %}
