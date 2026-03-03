@@ -10,18 +10,16 @@ from datetime import datetime
 # BASE SETUP
 # ======================
 
+basedir = os.path.abspath(os.path.dirname(__file__))
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "supersecretkey"
-
-# Create a safe path for SQLite
-basedir = os.path.abspath(os.path.dirname(__file__))
-db_path = os.path.join(basedir, "store.db")
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(basedir,'store.db')}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Ensure uploads folder exists
-os.makedirs(os.path.join(basedir, "static", "uploads"), exist_ok=True)
-UPLOAD_FOLDER = os.path.join("static", "uploads")
+UPLOAD_FOLDER = os.path.join(basedir, "static", "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 db = SQLAlchemy(app)
@@ -75,15 +73,13 @@ class Order(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-
 # ======================
-# DEMO DATA
+# SETUP FUNCTION
 # ======================
 
-@app.before_first_request
-def setup():
+def setup_demo_data():
     db.create_all()
-    
+
     # Demo products if none exist
     if Product.query.count() == 0:
         demo_products = [
@@ -95,20 +91,27 @@ def setup():
         for item in demo_products:
             db.session.add(Product(**item))
 
-        # Admin account
-        if not User.query.filter_by(email="admin@mail.com").first():
-            admin = User(username="admin", email="admin@mail.com", is_admin=True)
-            admin.set_password("admin123")
-            db.session.add(admin)
+    # Admin account
+    if not User.query.filter_by(email="admin@mail.com").first():
+        admin = User(username="admin", email="admin@mail.com", is_admin=True)
+        admin.set_password("admin123")
+        db.session.add(admin)
 
-        db.session.commit()
+    db.session.commit()
 
 
 # ======================
-# ROUTES
+# CALL SETUP AT STARTUP
 # ======================
 
-# Home + Search + Filter
+with app.app_context():
+    setup_demo_data()
+
+
+# ======================
+# ROUTES (Home, Admin, CRUD, Cart, Auth)
+# ======================
+
 @app.route("/")
 def home():
     search = request.args.get("search")
@@ -120,7 +123,7 @@ def home():
         products = products.filter_by(category=category)
     return render_template("home.html", products=products.all())
 
-# Admin dashboard
+
 @app.route("/admin")
 @login_required
 def admin():
@@ -130,7 +133,7 @@ def admin():
     orders = Order.query.all()
     return render_template("admin.html", products=products, orders=orders)
 
-# Add Product
+
 @app.route("/admin/add-product", methods=["POST"])
 @login_required
 def add_product():
@@ -152,14 +155,14 @@ def add_product():
     db.session.commit()
     return redirect(url_for("admin"))
 
-# Edit Product
-@app.route("/admin/edit-product/<int:id>", methods=["GET", "POST"])
+
+@app.route("/admin/edit-product/<int:id>", methods=["GET","POST"])
 @login_required
 def edit_product(id):
     if not current_user.is_admin:
         return "Unauthorized"
     product = Product.query.get_or_404(id)
-    if request.method == "POST":
+    if request.method=="POST":
         product.name = request.form["name"]
         product.description = request.form["description"]
         product.price = float(request.form["price"])
@@ -178,7 +181,7 @@ def edit_product(id):
         return redirect(url_for("admin"))
     return render_template("edit_product.html", product=product)
 
-# Delete Product
+
 @app.route("/admin/delete-product/<int:id>", methods=["POST"])
 @login_required
 def delete_product(id):
@@ -194,7 +197,7 @@ def delete_product(id):
         db.session.commit()
     return redirect(url_for("admin"))
 
-# Cart
+
 @app.route("/add-to-cart/<int:id>")
 @login_required
 def add_to_cart(id):
@@ -205,6 +208,7 @@ def add_to_cart(id):
         db.session.add(CartItem(user_id=current_user.id, product_id=id, quantity=1))
     db.session.commit()
     return redirect(url_for("cart"))
+
 
 @app.route("/cart")
 @login_required
@@ -218,6 +222,7 @@ def cart():
         total += subtotal
         detailed.append({"product": product, "quantity": item.quantity, "subtotal": subtotal})
     return render_template("cart.html", items=detailed, total=total)
+
 
 @app.route("/checkout")
 @login_required
@@ -233,10 +238,10 @@ def checkout():
     db.session.commit()
     return render_template("checkout.html", total=total)
 
-# Authentication
-@app.route("/register", methods=["GET", "POST"])
+
+@app.route("/register", methods=["GET","POST"])
 def register():
-    if request.method == "POST":
+    if request.method=="POST":
         user = User(username=request.form["username"], email=request.form["email"])
         user.set_password(request.form["password"])
         db.session.add(user)
@@ -244,14 +249,16 @@ def register():
         return redirect(url_for("login"))
     return render_template("register.html")
 
-@app.route("/login", methods=["GET", "POST"])
+
+@app.route("/login", methods=["GET","POST"])
 def login():
-    if request.method == "POST":
+    if request.method=="POST":
         user = User.query.filter_by(email=request.form["email"]).first()
         if user and user.check_password(request.form["password"]):
             login_user(user)
             return redirect(url_for("home"))
     return render_template("login.html")
+
 
 @app.route("/logout")
 @login_required
@@ -259,10 +266,11 @@ def logout():
     logout_user()
     return redirect(url_for("home"))
 
+
 # ======================
 # RUN
 # ======================
-if __name__ == "__main__":
-    # Bind to PORT for Render
+
+if __name__=="__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
