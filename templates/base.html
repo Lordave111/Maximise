@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Maximise</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div style="padding:15px; background:linear-gradient(90deg,#6a0dad,#ff00aa);">
+    <a href="/" style="color:white;">Home</a>
+
+    {% if current_user.is_authenticated %}
+        | <a href="/cart" style="color:white;">Cart</a>
+        | <a href="/logout" style="color:white;">Logout</a>
+        {% if current_user.is_admin %}
+            | <a href="/admin" style="color:white;">Admin</a>
+        {% endif %}
+    {% else %}
+        | <a href="/login" style="color:white;">Login</a>
+        | <a href="/register" style="color:white;">Register</a>
+    {% endif %}
+</div>
+
+<div style="padding:20px;">
+    {% block content %}{% endblock %}
+</div>
+
+</body>
+</html>
