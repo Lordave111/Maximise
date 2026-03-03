@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<div class="container">
+<h2>Admin Overview</h2>
+<h3>Users</h3>
+<table>
+    <tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th></tr>
+    {% for user in users %}
+    <tr><td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.email }}</td><td>{{ user.role }}</td></tr>
+    {% endfor %}
+</table>
+<h3>Products</h3>
+<div class="product-grid">
+    {% for product in products %}
+    <div class="product-card">
+        <img src="{{ product.cover_image }}">
+        <h3>{{ product.name }}</h3>
+        <p>₦{{ product.price }}</p>
+        <p>Seller: {{ product.seller.username }}</p>
+    </div>
+    {% endfor %}
+</div>
+<h3>Categories</h3>
+<ul>
+    {% for cat in categories %}
+    <li>{{ cat.name }}</li>
+    {% endfor %}
+</ul>
+</div>
+{% endblock %}
