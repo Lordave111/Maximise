@@ -1,29 +1,35 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Maximise</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Maximise{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="logo">
+            <a href="{{ url_for('home') }}">Maximise</a>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('home') }}">Home</a></li>
+            {% if current_user.is_authenticated %}
+                <li><a href="{{ url_for('cart') }}">Cart</a></li>
+                {% if current_user.is_admin %}
+                    <li><a href="{{ url_for('admin') }}">Admin</a></li>
+                {% endif %}
+                <li><a href="{{ url_for('logout') }}">Logout</a></li>
+            {% else %}
+                <li><a href="{{ url_for('login') }}">Login</a></li>
+                <li><a href="{{ url_for('register') }}">Sign Up</a></li>
+            {% endif %}
+        </ul>
+    </nav>
 
-<div style="padding:15px; background:linear-gradient(90deg,#6a0dad,#ff00aa);">
-    <a href="/" style="color:white;">Home</a>
-
-    {% if current_user.is_authenticated %}
-        | <a href="/cart" style="color:white;">Cart</a>
-        | <a href="/logout" style="color:white;">Logout</a>
-        {% if current_user.is_admin %}
-            | <a href="/admin" style="color:white;">Admin</a>
-        {% endif %}
-    {% else %}
-        | <a href="/login" style="color:white;">Login</a>
-        | <a href="/register" style="color:white;">Register</a>
-    {% endif %}
-</div>
-
-<div style="padding:20px;">
-    {% block content %}{% endblock %}
-</div>
-
+    <main>
+        {% block content %}{% endblock %}
+    </main>
 </body>
 </html>
