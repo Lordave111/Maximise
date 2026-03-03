@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Edit Product</h2>
+
+<form method="POST" enctype="multipart/form-data">
+    <input type="text" name="name" value="{{ product.name }}" required><br><br>
+    <input type="text" name="description" value="{{ product.description }}" required><br><br>
+    <input type="number" name="price" value="{{ product.price }}" required><br><br>
+    <input type="number" name="stock" value="{{ product.stock }}" required><br><br>
+    <input type="text" name="category" value="{{ product.category }}" required><br><br>
+    <p>Current Image:</p>
+    <img src="{{ url_for('static', filename='uploads/' + product.image) }}" width="150"><br><br>
+    <input type="file" name="image"><br><br>
+    <button class="btn">Update Product</button>
+</form>
+
+<a href="/admin">
+    <button class="btn" style="background:#6a0dad;margin-top:15px;">Back to Admin</button>
+</a>
+
+{% endblock %}
