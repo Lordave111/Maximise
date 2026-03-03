@@ -143,6 +143,62 @@ def home():
 # ADD PRODUCT (ADMIN UPLOAD)
 # ======================
 
+# ======================
+# EDIT PRODUCT (ADMIN)
+
+# ======================
+# DELETE PRODUCT (ADMIN)
+# ======================
+@app.route("/admin/delete-product/<int:id>", methods=["POST"])
+@login_required
+def delete_product(id):
+    if not current_user.is_admin:
+        return "Unauthorized"
+
+    product = Product.query.get(id)
+    if product:
+        # Remove the image file if it's not the default
+        if product.image != "default.png":
+            image_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+        db.session.delete(product)
+        db.session.commit()
+
+    return redirect(url_for("admin"))# ======================
+    
+@app.route("/admin/edit-product/<int:id>", methods=["GET", "POST"])
+@login_required
+def edit_product(id):
+    if not current_user.is_admin:
+        return "Unauthorized"
+
+    product = Product.query.get_or_404(id)
+
+    if request.method == "POST":
+        product.name = request.form["name"]
+        product.description = request.form["description"]
+        product.price = float(request.form["price"])
+        product.stock = int(request.form["stock"])
+        product.category = request.form["category"]
+
+        file = request.files.get("image")
+        if file and file.filename != "":
+            # Remove old image if not default
+            if product.image != "default.png":
+                old_path = os.path.join(app.config["UPLOAD_FOLDER"], product.image)
+                if os.path.exists(old_path):
+                    os.remove(old_path)
+
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config["UPLOAD_FOLDER"], filename))
+            product.image = filename
+
+        db.session.commit()
+        return redirect(url_for("admin"))
+
+    return render_template("edit_product.html", product=product)
 @app.route("/admin/add-product", methods=["POST"])
 @login_required
 def add_product():
