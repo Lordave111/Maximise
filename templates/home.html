@@ -1,27 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Home | Maximise{% endblock %}
+{% block title %}Explore | Maximise{% endblock %}
 {% block content %}
 <div class="container">
-    <div class="filters">
+    <section class="hero">
+        <div>
+            <div class="eyebrow">Modern marketplace</div>
+            <h1>Find something <span>worth maximising.</span></h1>
+            <p>Discover products from independent sellers through a faster, cleaner marketplace experience built for browsing, discovery and direct conversations.</p>
+        </div>
+        <div class="hero-panel">
+            <div><small>Marketplace status</small><div class="metric">Live &amp; growing</div></div>
+            <div class="hero-orb"></div>
+        </div>
+    </section>
+
+    <div class="toolbar">
+        <form method="get" class="search-form">
+            <div class="search-box"><i class="ri-search-2-line"></i><input type="search" name="search" placeholder="Search products..." value="{{ request.args.get('search', '') }}"></div>
+            <button class="btn" type="submit"><i class="ri-search-line"></i> Search</button>
+        </form>
         <form method="get">
-            <input type="text" name="search" placeholder="Search products..." value="{{ request.args.get('search') }}">
-            <select name="category" onchange="this.form.submit()">
+            <select name="category" onchange="this.form.submit()" aria-label="Filter by category">
                 <option value="">All Categories</option>
-                {% for cat in categories %}
-                    <option value="{{ cat.id }}" {% if request.args.get('category')==cat.id|string %}selected{% endif %}>{{ cat.name }}</option>
-                {% endfor %}
+                {% for cat in categories %}<option value="{{ cat.id }}" {% if request.args.get('category')==cat.id|string %}selected{% endif %}>{{ cat.name }}</option>{% endfor %}
             </select>
         </form>
     </div>
+
+    <div class="section-heading"><div><h2>Latest products</h2><p>Fresh listings from the marketplace</p></div></div>
+    {% if products %}
     <div class="product-grid">
         {% for product in products %}
-        <div class="product-card">
-            <img src="{{ product.cover_image }}" alt="{{ product.name }}">
-            <h3>{{ product.name }}</h3>
-            <p class="price">₦{{ product.price }}</p>
-            <a href="{{ url_for('product_detail', id=product.id) }}" class="btn">View Details</a>
-        </div>
+        <article class="product-card">
+            <div class="product-media"><img src="{{ product.cover_image }}" alt="{{ product.name }}" loading="lazy"></div>
+            <div class="product-body">
+                <h3>{{ product.name }}</h3>
+                <p class="price">₦{{ "{:,.2f}".format(product.price) }} <span>•</span></p>
+                <p>{{ product.description|truncate(90) if product.description else 'A new listing waiting to be explored.' }}</p>
+                <div class="product-actions"><a href="{{ url_for('product_detail', id=product.id) }}" class="btn full">View Details <i class="ri-arrow-right-line"></i></a></div>
+            </div>
+        </article>
         {% endfor %}
     </div>
+    {% else %}
+    <div class="empty-state"><i class="ri-inbox-2-line"></i><strong>No products found</strong><p>Try another search or category.</p></div>
+    {% endif %}
 </div>
 {% endblock %}

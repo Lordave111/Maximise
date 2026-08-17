@@ -1,31 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Admin Dashboard{% endblock %}
+{% block title %}Admin Dashboard | Maximise{% endblock %}
 {% block content %}
 <div class="container">
-<h2>Admin Overview</h2>
-<h3>Users</h3>
-<table>
-    <tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th></tr>
-    {% for user in users %}
-    <tr><td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.email }}</td><td>{{ user.role }}</td></tr>
-    {% endfor %}
-</table>
-<h3>Products</h3>
-<div class="product-grid">
-    {% for product in products %}
-    <div class="product-card">
-        <img src="{{ product.cover_image }}">
-        <h3>{{ product.name }}</h3>
-        <p>₦{{ product.price }}</p>
-        <p>Seller: {{ product.seller.username }}</p>
-    </div>
-    {% endfor %}
-</div>
-<h3>Categories</h3>
-<ul>
-    {% for cat in categories %}
-    <li>{{ cat.name }}</li>
-    {% endfor %}
-</ul>
+    <div class="section-heading"><div><div class="eyebrow">Control centre</div><h2>Admin Dashboard</h2><p>Monitor users, products and marketplace activity.</p></div></div>
+    <div class="stats"><div class="stat-card"><i class="ri-group-line"></i><strong>{{ users|length }}</strong><span>Total users</span></div><div class="stat-card"><i class="ri-shopping-bag-3-line"></i><strong>{{ products|length }}</strong><span>Total products</span></div><div class="stat-card"><i class="ri-price-tag-3-line"></i><strong>{{ categories|length }}</strong><span>Categories</span></div></div>
+    <div class="section-heading"><div><h2>Users</h2><p>Registered marketplace accounts</p></div></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th></tr></thead><tbody>{% for user in users %}<tr><td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.email }}</td><td>{{ user.role|capitalize }}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="section-heading"><div><h2>Products</h2><p>Current marketplace inventory</p></div></div>
+    <div class="product-grid">{% for product in products %}<article class="product-card"><div class="product-media"><img src="{{ product.cover_image }}" alt="{{ product.name }}" loading="lazy"></div><div class="product-body"><h3>{{ product.name }}</h3><p class="price">₦{{ "{:,.2f}".format(product.price) }}</p><p>Seller: {{ product.seller.username if product.seller else 'Unknown' }}</p></div></article>{% endfor %}</div>
+    <div class="section-heading"><div><h2>Categories</h2><p>Available product categories</p></div></div>
+    <div class="product-grid">{% for cat in categories %}<div class="stat-card"><i class="ri-price-tag-2-line"></i><strong>{{ cat.name }}</strong><span>{{ cat.products|length }} product(s)</span></div>{% endfor %}</div>
 </div>
 {% endblock %}

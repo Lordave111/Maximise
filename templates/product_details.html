@@ -1,41 +1,26 @@
 {% extends "base.html" %}
-{% block title %}{{ product.name }}{% endblock %}
+{% block title %}{{ product.name }} | Maximise{% endblock %}
 {% block content %}
 <div class="product-detail">
     <div class="left">
         <img src="{{ product.cover_image }}" alt="{{ product.name }}">
         {% if screenshots %}
         <div class="swiper">
-            <div class="swiper-wrapper">
-                {% for s in screenshots %}
-                <div class="swiper-slide"><img src="{{ s }}"></div>
-                {% endfor %}
-            </div>
-            <div class="swiper-pagination"></div>
-            <div class="swiper-button-prev"></div>
-            <div class="swiper-button-next"></div>
+            <div class="swiper-wrapper">{% for s in screenshots %}<div class="swiper-slide"><img src="{{ s }}" alt="{{ product.name }} screenshot"></div>{% endfor %}</div>
+            <div class="swiper-pagination"></div><div class="swiper-button-prev"></div><div class="swiper-button-next"></div>
         </div>
         {% endif %}
     </div>
     <div class="right">
+        <div class="eyebrow">Product details</div>
         <h2>{{ product.name }}</h2>
-        <p class="price">₦{{ product.price }}</p>
-        <p>{{ product.description }}</p>
-        {% if not product.is_sold_out %}
-            <a href="{{ url_for('buy_product', id=product.id) }}" class="btn">Buy via WhatsApp</a>
-        {% else %}
-            <p class="sold-out">Sold Out</p>
-        {% endif %}
+        <p class="price">₦{{ "{:,.2f}".format(product.price) }}</p>
+        <p>{{ product.description or 'No description provided for this product yet.' }}</p>
+        {% if product.category %}<p><strong>Category:</strong> {{ product.category.name }}</p>{% endif %}
+        {% if not product.is_sold_out %}<a href="{{ url_for('buy_product', id=product.id) }}" class="btn full"><i class="ri-whatsapp-line"></i> Buy via WhatsApp</a>{% else %}<p class="sold-out"><i class="ri-close-circle-line"></i> Sold Out</p>{% endif %}
     </div>
 </div>
 <script>
-const swiper = new Swiper('.swiper', {
-  loop:true,
-  navigation: {
-    nextEl: '.swiper-button-next',
-    prevEl: '.swiper-button-prev',
-  },
-  pagination:{el:'.swiper-pagination',clickable:true}
-});
+if (document.querySelector('.swiper')) new Swiper('.swiper',{loop:true,spaceBetween:12,navigation:{nextEl:'.swiper-button-next',prevEl:'.swiper-button-prev'},pagination:{el:'.swiper-pagination',clickable:true}});
 </script>
 {% endblock %}

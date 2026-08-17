@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07080d">
 <title>{% block title %}Maximise{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <link href="https://cdn.jsdelivr.net/npm/remixicon/fonts/remixicon.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.css"/>
@@ -12,13 +14,14 @@
 <body>
 <header>
     <nav class="navbar">
-        <a href="{{ url_for('home') }}" class="logo">MarketX</a>
+        <a href="{{ url_for('home') }}" class="logo"><span class="logo-mark"><i class="ri-flashlight-fill"></i></span>Maximise</a>
         <ul class="nav-links">
+            <li><a href="{{ url_for('home') }}">Explore</a></li>
             {% if current_user.is_authenticated %}
                 {% if current_user.role=='admin' %}
-                    <li><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
+                    <li><a href="{{ url_for('admin_dashboard') }}">Admin</a></li>
                 {% elif current_user.role=='seller' %}
-                    <li><a href="{{ url_for('seller_dashboard') }}">Seller Dashboard</a></li>
+                    <li><a href="{{ url_for('seller_dashboard') }}">Seller Hub</a></li>
                 {% endif %}
                 <li><a href="{{ url_for('logout') }}">Logout</a></li>
             {% else %}
@@ -26,16 +29,14 @@
                 <li><a href="{{ url_for('register') }}">Register</a></li>
             {% endif %}
         </ul>
-        <div class="toggle-dark"><i class="ri-moon-line"></i></div>
+        <button class="toggle-dark" type="button" aria-label="Toggle theme"><i class="ri-moon-line"></i></button>
     </nav>
 </header>
 <main>
     {% with messages = get_flashed_messages() %}
         {% if messages %}
             <div class="flash-msg">
-                {% for msg in messages %}
-                    <p>{{ msg }}</p>
-                {% endfor %}
+                {% for msg in messages %}<p>{{ msg }}</p>{% endfor %}
             </div>
         {% endif %}
     {% endwith %}
@@ -43,8 +44,12 @@
 </main>
 <script>
 const toggle = document.querySelector('.toggle-dark');
-toggle.addEventListener('click', ()=>{
-    document.body.classList.toggle('dark');
+const icon = toggle?.querySelector('i');
+if (localStorage.getItem('maximise-theme') === 'light') document.body.classList.add('light');
+toggle?.addEventListener('click', () => {
+    document.body.classList.toggle('light');
+    localStorage.setItem('maximise-theme', document.body.classList.contains('light') ? 'light' : 'dark');
+    if (icon) icon.className = document.body.classList.contains('light') ? 'ri-sun-line' : 'ri-moon-line';
 });
 </script>
 </body>
