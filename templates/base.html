@@ -1,51 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Maximise{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link href="https://cdn.jsdelivr.net/npm/remixicon/fonts/remixicon.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.js"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swiper@9/swiper-bundle.min.css"/>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07090d"><title>{% block title %}Maximise{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css" rel="stylesheet"><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-<header>
-    <nav class="navbar">
-        <a href="{{ url_for('home') }}" class="logo">MarketX</a>
-        <ul class="nav-links">
-            {% if current_user.is_authenticated %}
-                {% if current_user.role=='admin' %}
-                    <li><a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a></li>
-                {% elif current_user.role=='seller' %}
-                    <li><a href="{{ url_for('seller_dashboard') }}">Seller Dashboard</a></li>
-                {% endif %}
-                <li><a href="{{ url_for('logout') }}">Logout</a></li>
-            {% else %}
-                <li><a href="{{ url_for('login') }}">Login</a></li>
-                <li><a href="{{ url_for('register') }}">Register</a></li>
-            {% endif %}
-        </ul>
-        <div class="toggle-dark"><i class="ri-moon-line"></i></div>
-    </nav>
-</header>
-<main>
-    {% with messages = get_flashed_messages() %}
-        {% if messages %}
-            <div class="flash-msg">
-                {% for msg in messages %}
-                    <p>{{ msg }}</p>
-                {% endfor %}
-            </div>
-        {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-</main>
-<script>
-const toggle = document.querySelector('.toggle-dark');
-toggle.addEventListener('click', ()=>{
-    document.body.classList.toggle('dark');
-});
-</script>
-</body>
-</html>
+<header class="topbar"><a class="brand" href="{{ url_for('market') }}"><span class="brand-mark"><i class="ri-sparkling-2-fill"></i></span><span>MAXIMISE</span></a>
+<nav><a href="{{ url_for('market') }}"><i class="ri-compass-3-line"></i><span>Market</span></a>{% if current_user.is_authenticated %}<a href="{{ url_for('dashboard') }}"><i class="ri-dashboard-3-line"></i><span>Dashboard</span></a><a href="{{ url_for('settings') }}"><i class="ri-settings-4-line"></i><span>Settings</span></a>{% if current_user.role=='seller' %}<a href="{{ url_for('seller_page', seller_slug=current_user.seller_slug) }}"><i class="ri-store-2-line"></i><span>My Store</span></a>{% endif %}{% if current_user.role=='admin' %}<a href="{{ url_for('admin_dashboard') }}"><i class="ri-shield-star-line"></i><span>Admin</span></a>{% endif %}<a href="{{ url_for('logout') }}" class="nav-exit"><i class="ri-logout-box-r-line"></i></a>{% else %}<a href="{{ url_for('login') }}">Login</a><a href="{{ url_for('register') }}" class="nav-cta">Create account</a>{% endif %}</nav>
+<button class="theme-toggle" aria-label="Toggle light mode"><i class="ri-moon-line"></i></button></header>
+<main>{% with messages=get_flashed_messages() %}{% if messages %}<div class="flash">{% for message in messages %}<span><i class="ri-information-line"></i>{{ message }}</span>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>
+<script>const saved=localStorage.getItem('maximise-theme');if(saved==='light')document.body.classList.add('light');const t=document.querySelector('.theme-toggle');t?.addEventListener('click',()=>{document.body.classList.toggle('light');localStorage.setItem('maximise-theme',document.body.classList.contains('light')?'light':'dark');t.innerHTML=document.body.classList.contains('light')?'<i class="ri-sun-line"></i>':'<i class="ri-moon-line"></i>'});</script>
+</body></html>
