@@ -43,7 +43,6 @@ with app.app_context():
 
 @event.listens_for(Session, 'before_flush')
 def protect_marketplace_deletes(session, flush_context, instances):
-    """Remove payment/placement rows before their referenced products/users."""
     placement_model = bootstrap.ListingPlacement
     payment_model = bootstrap.ListingPayment
     contact_model = bootstrap.SellerContact
@@ -55,8 +54,6 @@ def protect_marketplace_deletes(session, flush_context, instances):
             {payment_model.product_id: None}, synchronize_session=False
         )
 
-    # Seller/user deletion cascades products through the User relationship, but
-    # explicit dependent rows must also be removed because their FKs are non-null.
     user_model = __import__('app', fromlist=['User']).User
     deleted_users = [obj for obj in session.deleted if isinstance(obj, user_model)]
     for user in deleted_users:
@@ -69,16 +66,19 @@ def persistent_save_image(file):
     if not file or not file.filename:
         return None
 
-    original = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if original not in {'png', 'jpg', 'jpeg', 'webp', 'gif'}:
+    extension = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if extension not in {'png', 'jpg', 'jpeg', 'webp', 'gif'}:
         raise ValueError('Only PNG, JPG, JPEG, WEBP and GIF images are allowed.')
 
     try:
         image = Image.open(file.stream)
+        image.verify()
+        file.stream.seek(0)
+        image = Image.open(file.stream)
         image = ImageOps.exif_transpose(image)
         if image.mode not in ('RGB', 'RGBA'):
             image = image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
-        image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        image.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
         if image.mode == 'RGBA':
             background = Image.new('RGB', image.size, (0, 0, 0))
             background.paste(image, mask=image.getchannel('A'))
@@ -86,19 +86,33 @@ def persistent_save_image(file):
         else:
             image = image.convert('RGB')
 
-        output = io.BytesIO()
-        image.save(output, format='WEBP', quality=82, method=6)
-        encoded = base64.b64encode(output.getvalue()).decode('ascii')
+        # Keep database-backed assets comfortably small. This avoids MySQL
+        # packet/row-size surprises when sellers upload large phone photos.
+        encoded = None
+        for quality in (78, 68, 58, 48):
+            output = io.BytesIO()
+            image.save(output, format='WEBP', quality=quality, method=6)
+            payload = output.getvalue()
+            if len(payload) <= 1024 * 1024:
+                encoded = base64.b64encode(payload).decode('ascii')
+                break
+        if encoded is None:
+            raise ValueError('That image is too large after compression. Please choose a smaller image.')
+    except ValueError:
+        raise
     except Exception as exc:
         raise ValueError('That image could not be processed. Please choose another image.') from exc
 
-    asset = UploadedAsset(media_key=uuid.uuid4().hex, mime_type='image/webp', data=encoded)
-    db.session.add(asset)
-    db.session.flush()
-    return f'/media/{asset.media_key}'
+    try:
+        asset = UploadedAsset(media_key=uuid.uuid4().hex, mime_type='image/webp', data=encoded)
+        db.session.add(asset)
+        db.session.flush()
+        return f'/media/{asset.media_key}'
+    except Exception as exc:
+        db.session.rollback()
+        raise ValueError('The image could not be saved. Please try again with a smaller image.') from exc
 
 
-# Both payment-aware and legacy upload handlers resolve save_image at runtime.
 bootstrap.save_image = persistent_save_image
 import app as app_module
 app_module.save_image = persistent_save_image
@@ -110,7 +124,7 @@ def media_asset(media_key):
     if not asset:
         abort(404)
     try:
-        payload = base64.b64decode(asset.data)
+        payload = base64.b64decode(asset.data, validate=True)
     except Exception:
         abort(404)
     return Response(payload, mimetype=asset.mime_type, headers={
