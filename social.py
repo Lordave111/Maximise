@@ -180,19 +180,6 @@ def seller_insights():
     return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
 
 
-@app.get('/seller/followers')
-@login_required
-def seller_followers():
-    if current_user.role != 'seller':
-        return redirect(url_for('market'))
-    rows = SellerFollow.query.filter_by(seller_id=current_user.id).order_by(SellerFollow.created_at.desc()).all()
-    ids = [row.buyer_id for row in rows]
-    users = User.query.filter(User.id.in_(ids)).all() if ids else []
-    by_id = {user.id: user for user in users}
-    followers = [(by_id[row.buyer_id], row.created_at) for row in rows if row.buyer_id in by_id]
-    return render_template('seller_followers.html', followers=followers)
-
-
 @app.get('/admin/control')
 @login_required
 def admin_control():
