@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Notifications · Maximise{% endblock %}
+{% block content %}
+<div class="dash-shell">
+<section class="dash-hero"><div><div class="eyebrow">MAXIMISE / ALERTS</div><h1>Your <span class="gradient">notifications.</span></h1><p>Stay close to the sellers you follow and never miss a new listing.</p></div><form method="post" action="{{ url_for('notifications_read_all') }}"><button class="btn ghost" type="submit"><i class="ri-check-double-line"></i> Mark all read</button></form></section>
+<section class="panel"><div style="display:grid;gap:10px">{% for n in notifications %}<form method="post" action="{{ url_for('notification_read', id=n.id) }}" class="panel" style="padding:18px;border-color:{% if not n.read_at %}rgba(212,175,55,.55){% else %}rgba(255,255,255,.08){% endif %};background:{% if not n.read_at %}rgba(212,175,55,.07){% else %}rgba(255,255,255,.025){% endif %}"><button type="submit" style="display:block;width:100%;text-align:left;border:0;background:none;color:inherit;cursor:pointer;padding:0"><div style="display:flex;justify-content:space-between;gap:12px;align-items:start"><div><div class="eyebrow">{% if not n.read_at %}NEW{% else %}ALERT{% endif %}</div><h3 style="margin:4px 0">{{ n.title }}</h3><p style="margin:0;color:var(--muted)">{{ n.message }}</p></div><i class="ri-arrow-right-up-line" style="font-size:20px;color:var(--gold2)"></i></div></button></form>{% else %}<div class="empty"><i class="ri-notification-off-line"></i><strong>No notifications yet.</strong><p>Follow a seller and we'll alert you when they publish a new good.</p></div>{% endfor %}</div></section>
+</div>
+{% endblock %}
