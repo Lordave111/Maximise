@@ -34,9 +34,6 @@ app.config.update(
     REMEMBER_COOKIE_SAMESITE='Lax',
 )
 
-# app.py imported login_user directly from flask_login. Patch that module-level
-# reference so every normal successful login also creates a persistent
-# remember-me cookie without requiring a new checkbox on the login screen.
 import app as app_module
 
 
@@ -168,6 +165,11 @@ def service_worker():
     """Serve the worker from / so it can control the whole Maximise origin."""
     return send_from_directory(app.static_folder, 'sw.js', mimetype='application/javascript',
                                max_age=0, conditional=False)
+
+
+# Social/follow/notification features are loaded after the payment layer so
+# their models and routes share the same production database and Flask app.
+import social  # noqa: E402,F401
 
 
 @app.errorhandler(500)
