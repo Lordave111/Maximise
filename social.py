@@ -2,7 +2,7 @@ from datetime import datetime
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import event, select, func
+from sqlalchemy import event, select
 
 from app import app, db, Product, User, unique_seller_slug
 from bootstrap import SellerContact, ListingPlacement
@@ -35,23 +35,14 @@ with app.app_context():
 @event.listens_for(Product, 'after_insert')
 def notify_followers_after_product_insert(mapper, connection, target):
     """Create follower notifications in the same DB transaction as a listing."""
-    rows = connection.execute(
-        select(SellerFollow.buyer_id).where(SellerFollow.seller_id == target.seller_id)
-    ).all()
+    rows = connection.execute(select(SellerFollow.buyer_id).where(SellerFollow.seller_id == target.seller_id)).all()
     if not rows:
         return
-    seller = connection.execute(
-        select(User.username).where(User.id == target.seller_id)
-    ).scalar_one_or_none() or 'A seller'
+    seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
     link = f'/product/{target.id}'
     values = [
-        {
-            'user_id': row[0],
-            'title': f'{seller} posted a new product',
-            'message': f'{target.name} is now available on Maximise.',
-            'link': link,
-            'created_at': datetime.utcnow(),
-        }
+        {'user_id': row[0], 'title': f'{seller} posted a new product',
+         'message': f'{target.name} is now available on Maximise.', 'link': link, 'created_at': datetime.utcnow()}
         for row in rows
     ]
     connection.execute(Notification.__table__.insert(), values)
@@ -67,14 +58,15 @@ def inject_social_globals():
             following_count = SellerFollow.query.filter_by(buyer_id=current_user.id).count()
         except Exception:
             db.session.rollback()
-    return {'unread_notifications': unread, 'following_count': following_count}
+    return {'unread_notifications': unread, 'following_count': following_count,
+            'is_following_seller': lambda seller_id: is_following(current_user.id, seller_id) if current_user.is_authenticated else False}
 
 
 def is_following(buyer_id, seller_id):
     return SellerFollow.query.filter_by(buyer_id=buyer_id, seller_id=seller_id).first() is not None
 
 
-@app.post('/seller/<seller_slug>/follow')
+@app.post('/follow-seller/<seller_slug>')
 @login_required
 def follow_seller(seller_slug):
     seller = User.query.filter_by(seller_slug=seller_slug, role='seller').first_or_404()
@@ -87,12 +79,9 @@ def follow_seller(seller_slug):
         flash(f'You unfollowed {seller.username}.')
     else:
         db.session.add(SellerFollow(buyer_id=current_user.id, seller_id=seller.id))
-        db.session.add(Notification(
-            user_id=seller.id,
-            title='New follower',
-            message=f'{current_user.username} is now following your store.',
-            link=url_for('seller_page', seller_slug=seller.seller_slug),
-        ))
+        db.session.add(Notification(user_id=seller.id, title='New follower',
+                                     message=f'{current_user.username} is now following your store.',
+                                     link=url_for('seller_page', seller_slug=seller.seller_slug)))
         flash(f'You are now following {seller.username}.')
     db.session.commit()
     return redirect(request.referrer or url_for('seller_page', seller_slug=seller_slug))
@@ -111,9 +100,7 @@ def notification_read(id):
     item = Notification.query.filter_by(id=id, user_id=current_user.id).first_or_404()
     item.read_at = datetime.utcnow()
     db.session.commit()
-    if item.link:
-        return redirect(item.link)
-    return redirect(url_for('notifications'))
+    return redirect(item.link or url_for('notifications'))
 
 
 @app.post('/notifications/read-all')
