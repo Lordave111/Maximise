@@ -1,8 +1,8 @@
 """Production hardening layer for Maximise.
 
-The Render service starts this module. It loads the payment-aware Flask routes,
-then replaces ephemeral filesystem uploads with database-backed image storage.
-This keeps seller images available across Render restarts/redeploys.
+Render starts this module. It loads the payment-aware Flask routes, then uses
+persistent database-backed image storage so seller uploads survive restarts and
+redeploys on an ephemeral web service.
 """
 
 import base64
@@ -73,9 +73,10 @@ def persistent_save_image(file):
     return f'/media/{asset.media_key}'
 
 
-# bootstrap.py resolves save_image at call time, so replacing its module-level
-# reference is enough for the payment-aware seller upload flow.
+# Both payment-aware and legacy upload handlers resolve save_image at runtime.
 bootstrap.save_image = persistent_save_image
+import app as app_module
+app_module.save_image = persistent_save_image
 
 
 @app.get('/media/<media_key>')
