@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from urllib.parse import quote
+from urllib.parse import quote, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
@@ -17,7 +17,7 @@ app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', os.path.join(os.ge
 
 
 def get_database_url():
-    value = os.environ.get('DATABASE_URL')
+    value = (os.environ.get('DATABASE_URL') or '').strip()
     if not value:
         return 'sqlite:///maximise.db'
     if value.startswith('postgres://'):
@@ -25,13 +25,24 @@ def get_database_url():
     if value.startswith('postgresql://') and '+psycopg' not in value:
         return value.replace('postgresql://', 'postgresql+psycopg://', 1)
     if value.startswith('mysql://'):
-        return value.replace('mysql://', 'mysql+pymysql://', 1)
+        value = value.replace('mysql://', 'mysql+pymysql://', 1)
+    if value.startswith('mysql+pymysql://'):
+        # Aiven commonly supplies ssl-mode=REQUIRED. That parameter is a
+        # MySQL CLI option and is not accepted by PyMySQL's connect().
+        # Remove it from the URL and enable TLS through connect_args below.
+        parsed = urlsplit(value)
+        query = [(key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True) if key.lower() != 'ssl-mode']
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
     return value
 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = get_database_url()
+DATABASE_URL = get_database_url()
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True, 'pool_recycle': 280}
+engine_options = {'pool_pre_ping': True, 'pool_recycle': 280}
+if DATABASE_URL.startswith('mysql+pymysql://'):
+    engine_options['connect_args'] = {'ssl': {}}
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
@@ -139,7 +150,12 @@ def inject_globals():
 
 @app.get('/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'maximise'}), 200
+    try:
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ok', 'service': 'maximise', 'database': 'ok'}), 200
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'degraded', 'service': 'maximise', 'database': 'unavailable'}), 503
 
 
 @app.get('/')
