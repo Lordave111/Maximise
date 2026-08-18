@@ -118,9 +118,8 @@ def seller_followers_page():
         flash('Seller access only.')
         return redirect(url_for('market'))
     rows = social.SellerFollow.query.filter_by(seller_id=current_user.id).order_by(social.SellerFollow.created_at.desc()).all()
-    followers = []
-    for row in rows:
-        user = social.User.query.get(row.buyer_id)
-        if user:
-            followers.append({'user': user, 'followed_at': row.created_at})
+    follower_ids = [row.buyer_id for row in rows]
+    users = social.User.query.filter(social.User.id.in_(follower_ids)).all() if follower_ids else []
+    by_id = {user.id: user for user in users}
+    followers = [(by_id[row.buyer_id], row.created_at) for row in rows if row.buyer_id in by_id]
     return render_template('seller_followers.html', followers=followers)
