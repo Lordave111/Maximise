@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Reactivate {{ product.name }} · Maximise{% endblock %}
+{% block content %}
+<div class="form-shell" style="max-width:980px">
+  <section class="dash-hero">
+    <div>
+      <div class="eyebrow">LISTING LIFECYCLE</div>
+      <h1>Bring <span class="gradient">{{ product.name }}</span> back.</h1>
+      <p>Your listing has expired. Choose a new placement window and complete the secure payment to return it to the marketplace.</p>
+    </div>
+    <div class="metric-card" style="min-width:190px"><i class="ri-time-line"></i><strong>Expired</strong><span>Ready for reactivation</span></div>
+  </section>
+  <form method="post" class="panel" style="margin-top:18px">
+    <div class="section-head"><div><div class="eyebrow">REACTIVATION WINDOW</div><h2>Choose visibility</h2><p>Fees are calculated from your product price of ₦{{ '{:,.2f}'.format(product.price) }}.</p></div></div>
+    <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));margin-top:20px">
+      <label class="quick" style="cursor:pointer"><input type="radio" name="duration" value="12" checked onchange="updateFee()" style="accent-color:var(--gold3)"><i class="ri-flashlight-line"></i><strong>12 hours · 10%</strong><small>₦{{ '{:,.2f}'.format(product.price * 0.10) }}</small></label>
+      <label class="quick" style="cursor:pointer"><input type="radio" name="duration" value="24" onchange="updateFee()" style="accent-color:var(--gold3)"><i class="ri-24-hours-line"></i><strong>24 hours · 28%</strong><small>₦{{ '{:,.2f}'.format(product.price * 0.28) }}</small></label>
+    </div>
+    <div class="panel" style="margin-top:18px;background:rgba(176,138,62,.045)"><div class="eyebrow">PAYMENT SUMMARY</div><h2 id="fee" style="margin:8px 0">₦{{ '{:,.2f}'.format(product.price * 0.10) }}</h2><p>Secure checkout powered by Paystack. Your product becomes visible only after the payment is verified.</p></div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:18px;flex-wrap:wrap"><a class="btn ghost" href="{{ url_for('seller_dashboard') }}">Cancel</a><button class="btn" type="submit"><i class="ri-lock-2-line"></i> Continue to secure payment</button></div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}<script>function updateFee(){const d=document.querySelector('input[name="duration"]:checked')?.value;const price={{ product.price|tojson }};document.getElementById('fee').textContent='₦'+(price*(d==='24'?.28:.10)).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}</script>{% endblock %}
