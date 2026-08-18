@@ -8,8 +8,10 @@ redeploys on an ephemeral web service.
 import base64
 import io
 import uuid
+from datetime import timedelta
 
 from flask import Response, abort, send_from_directory
+from flask_login import login_user as _flask_login_user
 from PIL import Image, ImageOps
 from sqlalchemy import event, inspect, text
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -17,6 +19,38 @@ from sqlalchemy.orm import Session
 
 from app import app, db, Product
 import bootstrap
+
+# Keep users signed in across browser/app restarts. Render supplies SECRET_KEY
+# as a persistent environment variable, so remember cookies remain valid across
+# normal deployments.
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    REMEMBER_COOKIE_DURATION=timedelta(days=30),
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SECURE=True,
+    REMEMBER_COOKIE_SAMESITE='Lax',
+)
+
+# app.py imported login_user directly from flask_login. Patch that module-level
+# reference so every normal successful login also creates a persistent
+# remember-me cookie without requiring a new checkbox on the login screen.
+import app as app_module
+
+
+def remembered_login_user(user, remember=None, duration=None, force=False, fresh=True):
+    return _flask_login_user(
+        user,
+        remember=True,
+        duration=duration or app.config['REMEMBER_COOKIE_DURATION'],
+        force=force,
+        fresh=fresh,
+    )
+
+
+app_module.login_user = remembered_login_user
 
 
 class UploadedAsset(db.Model):
@@ -112,7 +146,6 @@ def persistent_save_image(file):
 
 
 bootstrap.save_image = persistent_save_image
-import app as app_module
 app_module.save_image = persistent_save_image
 
 
