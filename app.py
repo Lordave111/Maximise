@@ -18,6 +18,10 @@ app.config['UPLOAD_FOLDER'] = os.environ.get('UPLOAD_FOLDER', os.path.join(os.ge
 
 def get_database_url():
     value = (os.environ.get('DATABASE_URL') or '').strip()
+    # Render users sometimes paste a quoted connection string. Remove only one
+    # matching pair so the actual SQLAlchemy URL is never polluted by quotes.
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
     if not value:
         return 'sqlite:///maximise.db'
     if value.startswith('postgres://'):
@@ -27,11 +31,16 @@ def get_database_url():
     if value.startswith('mysql://'):
         value = value.replace('mysql://', 'mysql+pymysql://', 1)
     if value.startswith('mysql+pymysql://'):
-        # Aiven commonly supplies ssl-mode=REQUIRED. That parameter is a
-        # MySQL CLI option and is not accepted by PyMySQL's connect().
-        # Remove it from the URL and enable TLS through connect_args below.
+        # Aiven commonly supplies ssl-mode=REQUIRED. That parameter is a MySQL
+        # CLI option and is not accepted by PyMySQL's connect(). Remove all
+        # common spellings from the URL and enable TLS through connect_args.
         parsed = urlsplit(value)
-        query = [(key, val) for key, val in parse_qsl(parsed.query, keep_blank_values=True) if key.lower() != 'ssl-mode']
+        query = []
+        for key, val in parse_qsl(parsed.query, keep_blank_values=True):
+            normalized = key.lower().replace('_', '-')
+            if normalized in {'ssl-mode', 'sslmode'}:
+                continue
+            query.append((key, val))
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
     return value
 
