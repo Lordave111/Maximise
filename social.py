@@ -34,9 +34,7 @@ class ProductView(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False, index=True)
     viewer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
     viewed_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
-    __table_args__ = (
-        db.Index('ix_product_view_product_viewer', 'product_id', 'viewer_id'),
-    )
+    __table_args__ = (db.Index('ix_product_view_product_viewer', 'product_id', 'viewer_id'),)
 
 
 with app.app_context():
@@ -50,21 +48,12 @@ def notify_followers_after_product_insert(mapper, connection, target):
         return
     seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
     link = f'/product/{target.id}'
-    values = [
-        {'user_id': row[0], 'title': f'{seller} posted a new product',
-         'message': f'{target.name} is now available on Maximise.', 'link': link, 'created_at': datetime.utcnow()}
-        for row in rows
-    ]
+    values = [{'user_id': row[0], 'title': f'{seller} posted a new product', 'message': f'{target.name} is now available on Maximise.', 'link': link, 'created_at': datetime.utcnow()} for row in rows]
     connection.execute(Notification.__table__.insert(), values)
 
 
 @app.before_request
 def record_product_view():
-    """Record one view per signed-in buyer per product per day.
-
-    Seller visits and refreshes are ignored. Anonymous visitors are counted only
-    as aggregate views, without storing identifying information.
-    """
     if request.method != 'GET':
         return
     path = request.path.rstrip('/')
@@ -75,22 +64,15 @@ def record_product_view():
     except (TypeError, ValueError):
         return
     product = db.session.get(Product, product_id)
-    if not product:
-        return
-    if current_user.is_authenticated and current_user.id == product.seller_id:
+    if not product or (current_user.is_authenticated and current_user.id == product.seller_id):
         return
     now = datetime.utcnow()
     if current_user.is_authenticated:
-        recent = ProductView.query.filter(
-            ProductView.product_id == product_id,
-            ProductView.viewer_id == current_user.id,
-            ProductView.viewed_at >= now - timedelta(days=1),
-        ).first()
+        recent = ProductView.query.filter(ProductView.product_id == product_id, ProductView.viewer_id == current_user.id, ProductView.viewed_at >= now - timedelta(days=1)).first()
         if recent:
             return
         db.session.add(ProductView(product_id=product_id, viewer_id=current_user.id))
     else:
-        # Keep anonymous analytics useful without storing IP addresses or other PII.
         db.session.add(ProductView(product_id=product_id, viewer_id=None))
     try:
         db.session.commit()
@@ -108,8 +90,7 @@ def inject_social_globals():
             following_count = SellerFollow.query.filter_by(buyer_id=current_user.id).count()
         except Exception:
             db.session.rollback()
-    return {'unread_notifications': unread, 'following_count': following_count,
-            'is_following_seller': lambda seller_id: is_following(current_user.id, seller_id) if current_user.is_authenticated else False}
+    return {'unread_notifications': unread, 'following_count': following_count, 'is_following_seller': lambda seller_id: is_following(current_user.id, seller_id) if current_user.is_authenticated else False}
 
 
 def is_following(buyer_id, seller_id):
@@ -129,9 +110,7 @@ def follow_seller(seller_slug):
         flash(f'You unfollowed {seller.username}.')
     else:
         db.session.add(SellerFollow(buyer_id=current_user.id, seller_id=seller.id))
-        db.session.add(Notification(user_id=seller.id, title='New follower',
-                                     message=f'{current_user.username} is now following your store.',
-                                     link=url_for('seller_page', seller_slug=seller.seller_slug)))
+        db.session.add(Notification(user_id=seller.id, title='New follower', message=f'{current_user.username} is now following your store.', link=url_for('seller_page', seller_slug=seller.seller_slug)))
         flash(f'You are now following {seller.username}.')
     db.session.commit()
     return redirect(request.referrer or url_for('seller_page', seller_slug=seller_slug))
@@ -185,38 +164,20 @@ def seller_insights():
     followers = User.query.filter(User.id.in_(follower_ids)).all() if follower_ids else []
     follower_map = {user.id: user for user in followers}
     followers = [follower_map[row.buyer_id] for row in follower_rows if row.buyer_id in follower_map]
-
     analytics = []
     for product in products:
         total_views = ProductView.query.filter_by(product_id=product.id).count()
-        unique_logged_in = db.session.query(ProductView.viewer_id).filter(
-            ProductView.product_id == product.id,
-            ProductView.viewer_id.isnot(None),
-        ).distinct().count()
+        unique_logged_in = db.session.query(ProductView.viewer_id).filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).distinct().count()
         anonymous_views = ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
-        recent_views = ProductView.query.filter(
-            ProductView.product_id == product.id,
-            ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7),
-        ).count()
-        viewer_rows = ProductView.query.filter(
-            ProductView.product_id == product.id,
-            ProductView.viewer_id.isnot(None),
-        ).order_by(ProductView.viewed_at.desc()).limit(20).all()
+        recent_views = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7)).count()
+        viewer_rows = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).order_by(ProductView.viewed_at.desc()).limit(20).all()
         viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
         viewer_users = User.query.filter(User.id.in_(viewer_ids)).all() if viewer_ids else []
         viewer_map = {user.id: user for user in viewer_users}
         viewers = [(viewer_map[row.viewer_id], row.viewed_at) for row in viewer_rows if row.viewer_id in viewer_map]
-        analytics.append({
-            'product': product,
-            'views': total_views,
-            'unique_viewers': unique_logged_in,
-            'anonymous_views': anonymous_views,
-            'recent_views': recent_views,
-            'viewers': viewers,
-        })
+        analytics.append({'product': product, 'views': total_views, 'unique_viewers': unique_logged_in, 'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers})
     total_views = sum(item['views'] for item in analytics)
-    return render_template('seller_insights.html', analytics=analytics, followers=followers,
-                           total_views=total_views, follower_count=len(followers))
+    return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
 
 
 @app.get('/seller/followers')
@@ -244,8 +205,7 @@ def admin_control():
     follows = SellerFollow.query.count()
     unread = Notification.query.filter(Notification.read_at.is_(None)).count()
     placements = ListingPlacement.query.order_by(ListingPlacement.expires_at.desc()).limit(30).all()
-    return render_template('admin_control.html', sellers=sellers, buyers=buyers, products=products,
-                           follows=follows, unread_notifications=unread, placements=placements)
+    return render_template('admin_control.html', sellers=sellers, buyers=buyers, products=products, follows=follows, unread_notifications=unread, placements=placements)
 
 
 @app.post('/admin/product/<int:id>/toggle')
@@ -302,3 +262,6 @@ def admin_announce():
     db.session.commit()
     flash(f'Announcement delivered to {len(users)} users.')
     return redirect(url_for('admin_control'))
+
+
+import seller_features  # noqa: E402,F401
