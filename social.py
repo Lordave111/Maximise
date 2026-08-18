@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -28,13 +28,23 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
 
 
+class ProductView(db.Model):
+    __tablename__ = 'product_view'
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False, index=True)
+    viewer_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
+    viewed_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+    __table_args__ = (
+        db.Index('ix_product_view_product_viewer', 'product_id', 'viewer_id'),
+    )
+
+
 with app.app_context():
     db.create_all()
 
 
 @event.listens_for(Product, 'after_insert')
 def notify_followers_after_product_insert(mapper, connection, target):
-    """Create follower notifications in the same DB transaction as a listing."""
     rows = connection.execute(select(SellerFollow.buyer_id).where(SellerFollow.seller_id == target.seller_id)).all()
     if not rows:
         return
@@ -46,6 +56,46 @@ def notify_followers_after_product_insert(mapper, connection, target):
         for row in rows
     ]
     connection.execute(Notification.__table__.insert(), values)
+
+
+@app.before_request
+def record_product_view():
+    """Record one view per signed-in buyer per product per day.
+
+    Seller visits and refreshes are ignored. Anonymous visitors are counted only
+    as aggregate views, without storing identifying information.
+    """
+    if request.method != 'GET':
+        return
+    path = request.path.rstrip('/')
+    if not path.startswith('/product/'):
+        return
+    try:
+        product_id = int(path.rsplit('/', 1)[-1])
+    except (TypeError, ValueError):
+        return
+    product = db.session.get(Product, product_id)
+    if not product:
+        return
+    if current_user.is_authenticated and current_user.id == product.seller_id:
+        return
+    now = datetime.utcnow()
+    if current_user.is_authenticated:
+        recent = ProductView.query.filter(
+            ProductView.product_id == product_id,
+            ProductView.viewer_id == current_user.id,
+            ProductView.viewed_at >= now - timedelta(days=1),
+        ).first()
+        if recent:
+            return
+        db.session.add(ProductView(product_id=product_id, viewer_id=current_user.id))
+    else:
+        # Keep anonymous analytics useful without storing IP addresses or other PII.
+        db.session.add(ProductView(product_id=product_id, viewer_id=None))
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 @app.context_processor
@@ -121,6 +171,65 @@ def following():
         if seller and seller.role == 'seller':
             sellers.append(seller)
     return render_template('following.html', sellers=sellers)
+
+
+@app.get('/seller/insights')
+@login_required
+def seller_insights():
+    if current_user.role != 'seller':
+        flash('Seller access required.')
+        return redirect(url_for('market'))
+    products = Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(), Product.id.desc()).all()
+    follower_rows = SellerFollow.query.filter_by(seller_id=current_user.id).order_by(SellerFollow.created_at.desc()).all()
+    follower_ids = [row.buyer_id for row in follower_rows]
+    followers = User.query.filter(User.id.in_(follower_ids)).all() if follower_ids else []
+    follower_map = {user.id: user for user in followers}
+    followers = [follower_map[row.buyer_id] for row in follower_rows if row.buyer_id in follower_map]
+
+    analytics = []
+    for product in products:
+        total_views = ProductView.query.filter_by(product_id=product.id).count()
+        unique_logged_in = db.session.query(ProductView.viewer_id).filter(
+            ProductView.product_id == product.id,
+            ProductView.viewer_id.isnot(None),
+        ).distinct().count()
+        anonymous_views = ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
+        recent_views = ProductView.query.filter(
+            ProductView.product_id == product.id,
+            ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7),
+        ).count()
+        viewer_rows = ProductView.query.filter(
+            ProductView.product_id == product.id,
+            ProductView.viewer_id.isnot(None),
+        ).order_by(ProductView.viewed_at.desc()).limit(20).all()
+        viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
+        viewer_users = User.query.filter(User.id.in_(viewer_ids)).all() if viewer_ids else []
+        viewer_map = {user.id: user for user in viewer_users}
+        viewers = [(viewer_map[row.viewer_id], row.viewed_at) for row in viewer_rows if row.viewer_id in viewer_map]
+        analytics.append({
+            'product': product,
+            'views': total_views,
+            'unique_viewers': unique_logged_in,
+            'anonymous_views': anonymous_views,
+            'recent_views': recent_views,
+            'viewers': viewers,
+        })
+    total_views = sum(item['views'] for item in analytics)
+    return render_template('seller_insights.html', analytics=analytics, followers=followers,
+                           total_views=total_views, follower_count=len(followers))
+
+
+@app.get('/seller/followers')
+@login_required
+def seller_followers():
+    if current_user.role != 'seller':
+        return redirect(url_for('market'))
+    rows = SellerFollow.query.filter_by(seller_id=current_user.id).order_by(SellerFollow.created_at.desc()).all()
+    ids = [row.buyer_id for row in rows]
+    users = User.query.filter(User.id.in_(ids)).all() if ids else []
+    by_id = {user.id: user for user in users}
+    followers = [(by_id[row.buyer_id], row.created_at) for row in rows if row.buyer_id in by_id]
+    return render_template('seller_followers.html', followers=followers)
 
 
 @app.get('/admin/control')
