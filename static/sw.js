@@ -1,8 +1,9 @@
-const CACHE = 'maximise-shell-v1';
+const CACHE = 'maximise-shell-v2';
 const SHELL = [
   '/market',
   '/static/style.css',
   '/static/listing.css',
+  '/static/luxury.css',
   '/static/manifest.webmanifest',
   '/static/icons/icon-192.svg',
   '/static/icons/icon-512.svg'
@@ -22,16 +23,16 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
-
   const url = new URL(request.url);
-  // Never cache authenticated/account/payment requests.
-  if (/^\/(login|register|logout|settings|dashboard|seller|admin|buy|payments)(\/|$)/.test(url.pathname)) return;
+  if (/^\/(login|register|logout|settings|dashboard|seller|admin|buy|payments|notifications|following)(\/|$)/.test(url.pathname)) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(request, copy));
+        }
         return response;
       }).catch(() => caches.match(request).then(cached => cached || caches.match('/market')))
     );
