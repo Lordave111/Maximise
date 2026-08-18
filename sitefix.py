@@ -11,10 +11,11 @@ import uuid
 
 from flask import Response, abort
 from PIL import Image, ImageOps
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.orm import Session
 
-from app import app, db
+from app import app, db, Product
 import bootstrap
 
 
@@ -38,6 +39,30 @@ with app.app_context():
             quoted = db.engine.dialect.identifier_preparer.quote('seller_contact')
             with db.engine.begin() as conn:
                 conn.execute(text(f'ALTER TABLE {quoted} ADD COLUMN free_listing_used {definition}'))
+
+
+@event.listens_for(Session, 'before_flush')
+def protect_marketplace_deletes(session, flush_context, instances):
+    """Remove payment/placement rows before their referenced products/users."""
+    placement_model = bootstrap.ListingPlacement
+    payment_model = bootstrap.ListingPayment
+    contact_model = bootstrap.SellerContact
+
+    deleted_products = [obj for obj in session.deleted if isinstance(obj, Product)]
+    for product in deleted_products:
+        session.query(placement_model).filter_by(product_id=product.id).delete(synchronize_session=False)
+        session.query(payment_model).filter_by(product_id=product.id).update(
+            {payment_model.product_id: None}, synchronize_session=False
+        )
+
+    # Seller/user deletion cascades products through the User relationship, but
+    # explicit dependent rows must also be removed because their FKs are non-null.
+    user_model = __import__('app', fromlist=['User']).User
+    deleted_users = [obj for obj in session.deleted if isinstance(obj, user_model)]
+    for user in deleted_users:
+        session.query(placement_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
+        session.query(payment_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
+        session.query(contact_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
 
 
 def persistent_save_image(file):
