@@ -80,67 +80,61 @@ def protect_marketplace_deletes(session, flush_context, instances):
     user_model = __import__('app', fromlist=['User']).User
     deleted_users = [obj for obj in session.deleted if isinstance(obj, user_model)]
     for user in deleted_users:
-        session.query(placement_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
-        session.query(payment_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
-        session.query(contact_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
         session.query(follow_model).filter((follow_model.buyer_id == user.id) | (follow_model.seller_id == user.id)).delete(synchronize_session=False)
         session.query(notification_model).filter_by(user_id=user.id).delete(synchronize_session=False)
+        session.query(contact_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
 
 
-def persistent_save_image(file):
-    if not file or not file.filename:
+def _decode_data_url(value):
+    if not value:
+        return None, None
+    try:
+        header, payload = value.split(',', 1)
+        mime = header.split(';', 1)[0].split(':', 1)[-1].strip() or 'image/webp'
+        return mime, base64.b64decode(payload, validate=True)
+    except Exception:
+        return None, None
+
+
+def _store_image(file_storage):
+    if not file_storage or not file_storage.filename:
         return None
-    extension = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if extension not in {'png', 'jpg', 'jpeg', 'webp', 'gif'}:
-        raise ValueError('Only PNG, JPG, JPEG, WEBP and GIF images are allowed.')
+    raw = file_storage.read()
+    if not raw:
+        return None
+    if len(raw) > 8 * 1024 * 1024:
+        raise ValueError('Image is too large. Please choose an image under 8 MB.')
     try:
-        image = Image.open(file.stream)
-        image.verify()
-        file.stream.seek(0)
-        image = Image.open(file.stream)
-        image = ImageOps.exif_transpose(image)
-        if image.mode not in ('RGB', 'RGBA'):
-            image = image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
-        image.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
-        if image.mode == 'RGBA':
-            background = Image.new('RGB', image.size, (0, 0, 0))
-            background.paste(image, mask=image.getchannel('A'))
-            image = background
-        else:
-            image = image.convert('RGB')
-        encoded = None
-        for quality in (78, 68, 58, 48):
-            output = io.BytesIO()
-            image.save(output, format='WEBP', quality=quality, method=6)
-            payload = output.getvalue()
-            if len(payload) <= 1024 * 1024:
-                encoded = base64.b64encode(payload).decode('ascii')
-                break
-        if encoded is None:
-            raise ValueError('That image is too large after compression. Please choose a smaller image.')
-    except ValueError:
-        raise
+        with Image.open(io.BytesIO(raw)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
+            quality = 84
+            while True:
+                output = io.BytesIO()
+                image.save(output, format='WEBP', quality=quality, method=6)
+                if output.tell() <= 1024 * 1024 or quality <= 50:
+                    break
+                quality -= 7
+            encoded = base64.b64encode(output.getvalue()).decode('ascii')
     except Exception as exc:
-        raise ValueError('That image could not be processed. Please choose another image.') from exc
-    try:
-        asset = UploadedAsset(media_key=uuid.uuid4().hex, mime_type='image/webp', data=encoded)
-        db.session.add(asset)
-        db.session.flush()
-        return f'/media/{asset.media_key}'
-    except Exception as exc:
-        db.session.rollback()
-        raise ValueError('The image could not be saved. Please try again with a smaller image.') from exc
+        raise ValueError('The uploaded image could not be processed. Please use a JPG or PNG image.') from exc
+    asset = UploadedAsset(media_key=uuid.uuid4().hex, mime_type='image/webp', data=encoded)
+    db.session.add(asset)
+    db.session.flush()
+    return asset.media_key
 
 
-bootstrap.save_image = persistent_save_image
-app_module.save_image = persistent_save_image
+def _store_images(files):
+    keys = []
+    for file_storage in files or []:
+        key = _store_image(file_storage)
+        if key:
+            keys.append(key)
+    return keys
 
 
-@app.get('/media/<media_key>')
-def media_asset(media_key):
-    asset = UploadedAsset.query.filter_by(media_key=media_key).first()
-    if not asset:
-        abort(404)
+def _media_response(media_key):
+    asset = UploadedAsset.query.filter_by(media_key=media_key).first_or_404()
     try:
         payload = base64.b64decode(asset.data, validate=True)
     except Exception:
@@ -148,19 +142,20 @@ def media_asset(media_key):
     return Response(payload, mimetype=asset.mime_type, headers={'Cache-Control': 'public, max-age=31536000, immutable'})
 
 
-@app.get('/sw.js')
-def service_worker():
-    return send_from_directory(app.static_folder, 'sw.js', mimetype='application/javascript', max_age=0, conditional=False)
+@app.get('/media/<media_key>')
+def media(media_key):
+    return _media_response(media_key)
 
 
+@app.get('/uploads/<path:filename>')
+def legacy_upload(filename):
+    # Keep old templates/links working where a legacy file exists.
+    return send_from_directory('static/uploads', filename)
+
+
+# IMPORTANT: Render starts `sitefix:app`, so modules that register routes must
+# be imported here. Importing only bootstrap leaves /seller/followers and
+# /seller/insights unregistered, which produces a 404 even though their route
+# functions exist in the source tree.
 import social  # noqa: E402,F401
-
-
-@app.errorhandler(500)
-def internal_error(error):
-    db.session.rollback()
-    app.logger.exception('Unhandled Maximise server error: %s', error)
-    return ('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maximise · Something went wrong</title><style>body{margin:0;background:#050505;color:#f5f0e6;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.box{max-width:620px;padding:42px;border:1px solid rgba(212,175,55,.25);border-radius:24px;background:rgba(255,255,255,.04);text-align:center}h1{color:#d4af37}p{color:#aaa;line-height:1.7}a{color:#d4af37}</style></head><body><div class="box"><h1>Maximise is recovering</h1><p>Something went wrong while loading this page. Your account and marketplace data are safe. Please refresh and try again.</p><a href="/market">Return to Market</a></div></body></html>', 500)
-
-
-application = app
+import seller_features  # noqa: E402,F401
