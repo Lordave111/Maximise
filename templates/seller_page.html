@@ -5,7 +5,7 @@
   <div class="store-info"><div class="store-avatar">{{ seller.username[:1]|upper }}</div><div><div class="eyebrow">VERIFIED SELLER</div><h1>{{ seller.username }}</h1><p>@{{ seller.seller_slug }} · {{ products|length }} active products</p></div></div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
     {% if current_user.is_authenticated and current_user.id != seller.id %}
-      <form method="post" action="{{ url_for('follow_seller', seller_slug=seller.seller_slug) }}"><button class="btn" type="submit"><i class="ri-user-follow-line"></i> Follow seller</button></form>
+      <form method="post" action="{{ url_for('follow_seller', seller_slug=seller.seller_slug) }}"><button class="btn" type="submit"><i class="{% if is_following_seller(seller.id) %}ri-user-unfollow-line{% else %}ri-user-follow-line{% endif %}"></i> {% if is_following_seller(seller.id) %}Following{% else %}Follow seller{% endif %}</button></form>
     {% elif current_user.is_authenticated and current_user.id == seller.id %}
       <a class="btn" href="{{ url_for('seller_dashboard') }}"><i class="ri-dashboard-line"></i> Seller Hub</a>
     {% else %}<a class="btn" href="{{ url_for('login') }}"><i class="ri-user-follow-line"></i> Login to follow</a>{% endif %}
