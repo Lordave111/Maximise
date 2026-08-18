@@ -20,9 +20,6 @@ from sqlalchemy.orm import Session
 from app import app, db, Product
 import bootstrap
 
-# Keep users signed in across browser/app restarts. Render supplies SECRET_KEY
-# as a persistent environment variable, so remember cookies remain valid across
-# normal deployments.
 app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     SESSION_COOKIE_HTTPONLY=True,
@@ -38,13 +35,7 @@ import app as app_module
 
 
 def remembered_login_user(user, remember=None, duration=None, force=False, fresh=True):
-    return _flask_login_user(
-        user,
-        remember=True,
-        duration=duration or app.config['REMEMBER_COOKIE_DURATION'],
-        force=force,
-        fresh=fresh,
-    )
+    return _flask_login_user(user, remember=True, duration=duration or app.config['REMEMBER_COOKIE_DURATION'], force=force, fresh=fresh)
 
 
 app_module.login_user = remembered_login_user
@@ -77,13 +68,14 @@ def protect_marketplace_deletes(session, flush_context, instances):
     placement_model = bootstrap.ListingPlacement
     payment_model = bootstrap.ListingPayment
     contact_model = bootstrap.SellerContact
+    social_module = __import__('social')
+    follow_model = social_module.SellerFollow
+    notification_model = social_module.Notification
 
     deleted_products = [obj for obj in session.deleted if isinstance(obj, Product)]
     for product in deleted_products:
         session.query(placement_model).filter_by(product_id=product.id).delete(synchronize_session=False)
-        session.query(payment_model).filter_by(product_id=product.id).update(
-            {payment_model.product_id: None}, synchronize_session=False
-        )
+        session.query(payment_model).filter_by(product_id=product.id).update({payment_model.product_id: None}, synchronize_session=False)
 
     user_model = __import__('app', fromlist=['User']).User
     deleted_users = [obj for obj in session.deleted if isinstance(obj, user_model)]
@@ -91,16 +83,16 @@ def protect_marketplace_deletes(session, flush_context, instances):
         session.query(placement_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
         session.query(payment_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
         session.query(contact_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
+        session.query(follow_model).filter((follow_model.buyer_id == user.id) | (follow_model.seller_id == user.id)).delete(synchronize_session=False)
+        session.query(notification_model).filter_by(user_id=user.id).delete(synchronize_session=False)
 
 
 def persistent_save_image(file):
     if not file or not file.filename:
         return None
-
     extension = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
     if extension not in {'png', 'jpg', 'jpeg', 'webp', 'gif'}:
         raise ValueError('Only PNG, JPG, JPEG, WEBP and GIF images are allowed.')
-
     try:
         image = Image.open(file.stream)
         image.verify()
@@ -116,7 +108,6 @@ def persistent_save_image(file):
             image = background
         else:
             image = image.convert('RGB')
-
         encoded = None
         for quality in (78, 68, 58, 48):
             output = io.BytesIO()
@@ -131,7 +122,6 @@ def persistent_save_image(file):
         raise
     except Exception as exc:
         raise ValueError('That image could not be processed. Please choose another image.') from exc
-
     try:
         asset = UploadedAsset(media_key=uuid.uuid4().hex, mime_type='image/webp', data=encoded)
         db.session.add(asset)
@@ -155,20 +145,14 @@ def media_asset(media_key):
         payload = base64.b64decode(asset.data, validate=True)
     except Exception:
         abort(404)
-    return Response(payload, mimetype=asset.mime_type, headers={
-        'Cache-Control': 'public, max-age=31536000, immutable'
-    })
+    return Response(payload, mimetype=asset.mime_type, headers={'Cache-Control': 'public, max-age=31536000, immutable'})
 
 
 @app.get('/sw.js')
 def service_worker():
-    """Serve the worker from / so it can control the whole Maximise origin."""
-    return send_from_directory(app.static_folder, 'sw.js', mimetype='application/javascript',
-                               max_age=0, conditional=False)
+    return send_from_directory(app.static_folder, 'sw.js', mimetype='application/javascript', max_age=0, conditional=False)
 
 
-# Social/follow/notification features are loaded after the payment layer so
-# their models and routes share the same production database and Flask app.
 import social  # noqa: E402,F401
 
 
@@ -176,16 +160,7 @@ import social  # noqa: E402,F401
 def internal_error(error):
     db.session.rollback()
     app.logger.exception('Unhandled Maximise server error: %s', error)
-    return (
-        '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<title>Maximise · Something went wrong</title><style>'
-        'body{margin:0;background:#050505;color:#f5f0e6;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}'
-        '.box{max-width:620px;padding:42px;border:1px solid rgba(212,175,55,.25);border-radius:24px;background:rgba(255,255,255,.04);text-align:center}'
-        'h1{color:#d4af37}p{color:#aaa;line-height:1.7}a{color:#d4af37}'
-        '</style></head><body><div class="box"><h1>Maximise is recovering</h1>'
-        '<p>Something went wrong while loading this page. Your account and marketplace data are safe. Please refresh and try again.</p>'
-        '<a href="/market">Return to Market</a></div></body></html>', 500
-    )
+    return ('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maximise · Something went wrong</title><style>body{margin:0;background:#050505;color:#f5f0e6;font:16px system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}.box{max-width:620px;padding:42px;border:1px solid rgba(212,175,55,.25);border-radius:24px;background:rgba(255,255,255,.04);text-align:center}h1{color:#d4af37}p{color:#aaa;line-height:1.7}a{color:#d4af37}</style></head><body><div class="box"><h1>Maximise is recovering</h1><p>Something went wrong while loading this page. Your account and marketplace data are safe. Please refresh and try again.</p><a href="/market">Return to Market</a></div></body></html>', 500)
 
 
 application = app
