@@ -33,7 +33,8 @@ class SellerContact(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
     public_email = db.Column(db.String(160), nullable=False)
-    phone_number = db.Column(db.String(40), nullable=False)
+    phone_number = db.Column(db.String(40), nullable=True)
+    free_listing_used = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
     seller = db.relationship('User', backref=db.backref('seller_contact', uselist=False))
@@ -75,32 +76,35 @@ class ListingPlacement(db.Model):
 
 
 with app.app_context():
-    add_column_if_missing('user', 'contact_email', 'VARCHAR(160)')
-    add_column_if_missing('user', 'phone_number', 'VARCHAR(40)')
     db.create_all()
+    # Existing sellers already have a listing, so their complimentary first slot is consumed.
+    for seller in User.query.filter_by(role='seller').all():
+        contact = SellerContact.query.filter_by(seller_id=seller.id).first()
+        if not contact:
+            contact = SellerContact(seller_id=seller.id, public_email=seller.email, phone_number='', free_listing_used=False)
+            db.session.add(contact)
+        if Product.query.filter_by(seller_id=seller.id).first():
+            contact.free_listing_used = True
+    db.session.commit()
 
 
 def get_contact(user):
     contact = SellerContact.query.filter_by(seller_id=user.id).first()
     if contact:
         return contact
-    return SellerContact(
-        public_email=getattr(user, 'contact_email', None) or user.email,
-        phone_number=getattr(user, 'phone_number', None) or '',
-        seller_id=user.id,
-    )
+    return SellerContact(public_email=user.email, phone_number='', free_listing_used=False, seller_id=user.id)
 
 
-def save_contact(user, email, phone):
+def save_contact(user, email, phone, require_phone=False):
     email = (email or user.email).strip()[:160]
     phone = (phone or '').strip()[:40]
     if not email or '@' not in email:
         raise ValueError('Add a valid public email.')
-    if not phone:
+    if require_phone and not phone:
         raise ValueError('Add a phone number so buyers can call you.')
     contact = SellerContact.query.filter_by(seller_id=user.id).first()
     if not contact:
-        contact = SellerContact(seller_id=user.id, public_email=email, phone_number=phone)
+        contact = SellerContact(seller_id=user.id, public_email=email, phone_number=phone, free_listing_used=False)
         db.session.add(contact)
     else:
         contact.public_email = email
@@ -129,33 +133,18 @@ def listing_fee(price, hours):
 
 def create_placement(product, seller_id, duration_hours, fee_percent=0, amount_kobo=0, payment_id=None, is_free=False):
     starts = datetime.utcnow()
-    placement = ListingPlacement(
-        product_id=product.id,
-        seller_id=seller_id,
-        payment_id=payment_id,
-        duration_hours=duration_hours,
-        fee_percent=fee_percent,
-        amount_kobo=amount_kobo,
-        is_free=is_free,
-        starts_at=starts,
-        expires_at=starts + timedelta(hours=duration_hours),
-    )
-    db.session.add(placement)
-    return placement
+    db.session.add(ListingPlacement(
+        product_id=product.id, seller_id=seller_id, payment_id=payment_id,
+        duration_hours=duration_hours, fee_percent=fee_percent, amount_kobo=amount_kobo,
+        is_free=is_free, starts_at=starts, expires_at=starts + timedelta(hours=duration_hours),
+    ))
 
 
 def create_product_from_payment(payment):
     if payment.product_id:
         return Product.query.get(payment.product_id)
-    product = Product(
-        name=payment.name,
-        price=payment.price,
-        description=payment.description,
-        category_id=payment.category_id,
-        seller_id=payment.seller_id,
-        cover_image=payment.cover_image,
-        screenshots=payment.screenshots,
-    )
+    product = Product(name=payment.name, price=payment.price, description=payment.description, category_id=payment.category_id,
+                      seller_id=payment.seller_id, cover_image=payment.cover_image, screenshots=payment.screenshots)
     db.session.add(product)
     db.session.flush()
     create_placement(product, payment.seller_id, payment.duration_hours, payment.fee_percent, payment.amount_kobo, payment.id, False)
@@ -169,11 +158,8 @@ def create_product_from_payment(payment):
 def verify_with_paystack(reference):
     if not PAYSTACK_SECRET_KEY:
         return None
-    response = requests.get(
-        f'{PAYSTACK_BASE}/transaction/verify/{reference}',
-        headers={'Authorization': f'Bearer {PAYSTACK_SECRET_KEY}'},
-        timeout=20,
-    )
+    response = requests.get(f'{PAYSTACK_BASE}/transaction/verify/{reference}',
+                            headers={'Authorization': f'Bearer {PAYSTACK_SECRET_KEY}'}, timeout=20)
     response.raise_for_status()
     payload = response.json()
     return payload.get('data') if payload.get('status') else None
@@ -182,24 +168,13 @@ def verify_with_paystack(reference):
 def initialize_paystack_payment(payment, email):
     if not PAYSTACK_SECRET_KEY:
         raise RuntimeError('PAYSTACK_SECRET_KEY is not configured on the server.')
-    response = requests.post(
-        f'{PAYSTACK_BASE}/transaction/initialize',
+    response = requests.post(f'{PAYSTACK_BASE}/transaction/initialize',
         headers={'Authorization': f'Bearer {PAYSTACK_SECRET_KEY}', 'Content-Type': 'application/json'},
-        json={
-            'email': email,
-            'amount': str(payment.amount_kobo),
-            'currency': 'NGN',
-            'reference': payment.reference,
-            'callback_url': url_for('paystack_callback', _external=True),
-            'metadata': json.dumps({
-                'listing_payment_id': payment.id,
-                'seller_id': payment.seller_id,
-                'duration_hours': payment.duration_hours,
-                'cancel_action': url_for('add_product', _external=True),
-            }),
-        },
-        timeout=20,
-    )
+        json={'email': email, 'amount': str(payment.amount_kobo), 'currency': 'NGN', 'reference': payment.reference,
+              'callback_url': url_for('paystack_callback', _external=True),
+              'metadata': json.dumps({'listing_payment_id': payment.id, 'seller_id': payment.seller_id,
+                                      'duration_hours': payment.duration_hours,
+                                      'cancel_action': url_for('add_product', _external=True)})}, timeout=20)
     response.raise_for_status()
     payload = response.json()
     if not payload.get('status') or not payload.get('data', {}).get('authorization_url'):
@@ -210,9 +185,7 @@ def initialize_paystack_payment(payment, email):
 def complete_verified_payment(payment, transaction):
     if not transaction or transaction.get('status') != 'success':
         return False
-    if int(transaction.get('amount') or 0) != payment.amount_kobo:
-        return False
-    if (transaction.get('currency') or '').upper() != 'NGN':
+    if int(transaction.get('amount') or 0) != payment.amount_kobo or (transaction.get('currency') or '').upper() != 'NGN':
         return False
     create_product_from_payment(payment)
     return True
@@ -226,9 +199,10 @@ def render_storefront(slug):
 
 def render_product_page(product_id):
     product = Product.query.get_or_404(product_id)
-    screenshots = [s for s in (product.screenshots or '').split(',') if s]
     placement = ListingPlacement.query.filter_by(product_id=product.id).first()
-    return render_template('product_detail.html', product=product, screenshots=screenshots, contact=get_contact(product.seller), placement=placement)
+    return render_template('product_detail.html', product=product,
+                           screenshots=[s for s in (product.screenshots or '').split(',') if s],
+                           contact=get_contact(product.seller), placement=placement)
 
 
 @app.before_request
@@ -244,15 +218,17 @@ def marketplace_payment_layer():
             return redirect(url_for('login'))
         if request.method == 'GET':
             return render_template('settings.html', contact=get_contact(current_user))
+        action = request.form.get('action')
         try:
-            save_contact(current_user, request.form.get('contact_email', current_user.email), request.form.get('phone_number', ''))
+            save_contact(current_user, request.form.get('contact_email', current_user.email), request.form.get('phone_number', ''),
+                         require_phone=(current_user.role == 'seller' or action == 'become_seller'))
             db.session.commit()
         except ValueError as exc:
             db.session.rollback()
             flash(str(exc))
             return render_template('settings.html', contact=get_contact(current_user))
 
-    if request.path.startswith('/seller/') and request.path not in ('/seller/add', '/seller/payments'):
+    if request.path.startswith('/seller/') and request.path not in ('/seller/add', '/seller/payments') and not request.path.startswith('/seller/product/'):
         slug = request.path.split('/seller/', 1)[1].strip('/')
         if slug:
             return render_storefront(slug)
@@ -269,13 +245,9 @@ def marketplace_payment_layer():
         if current_user.role != 'seller':
             flash('Become a seller from Settings before uploading products.')
             return redirect(url_for('settings'))
-
         categories = Category.query.order_by(Category.name.asc()).all()
-        free_used = bool(ListingPayment.query.filter_by(seller_id=current_user.id, status='free').first())
-        if not free_used and Product.query.filter_by(seller_id=current_user.id).first():
-            free_used = True
         contact = get_contact(current_user)
-
+        free_used = bool(contact.free_listing_used) or bool(Product.query.filter_by(seller_id=current_user.id).first())
         if request.method == 'GET':
             return render_template('add_product.html', categories=categories, first_listing_free=not free_used, contact=contact)
 
@@ -286,9 +258,8 @@ def marketplace_payment_layer():
             description = request.form.get('description', '').strip()
             whatsapp = request.form.get('whatsapp', '').strip()[:30]
             email = request.form.get('contact_email', contact.public_email).strip()[:160]
-            phone = request.form.get('phone_number', contact.phone_number).strip()[:40]
+            phone = request.form.get('phone_number', contact.phone_number or '').strip()[:40]
             duration = int(request.form.get('duration', '24'))
-
             if not name or price < 0:
                 raise ValueError('Enter a valid product name and price.')
             if duration not in (12, 24):
@@ -302,7 +273,7 @@ def marketplace_payment_layer():
             if not whatsapp:
                 raise ValueError('Add a WhatsApp number so buyers can message you.')
 
-            save_contact(current_user, email, phone)
+            contact = save_contact(current_user, email, phone, True)
             current_user.whatsapp_number = whatsapp
             cover = save_image(request.files.get('cover_image'))
             if not cover:
@@ -310,18 +281,17 @@ def marketplace_payment_layer():
             screenshots = [saved for file in request.files.getlist('screenshots') if (saved := save_image(file))]
 
             if not free_used:
-                product = Product(name=name, price=float(price), description=description, category_id=category_id, seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots))
+                product = Product(name=name, price=float(price), description=description, category_id=category_id, seller_id=current_user.id,
+                                  cover_image=cover, screenshots=','.join(screenshots))
                 db.session.add(product)
                 db.session.flush()
-                free_payment = ListingPayment(
-                    reference=f'FREE-LIST-{uuid.uuid4().hex}', seller_id=current_user.id, product_id=product.id,
-                    name=name, price=float(price), description=description, category_id=category_id,
-                    cover_image=cover, screenshots=','.join(screenshots), duration_hours=24, fee_percent=0,
-                    amount_kobo=0, status='free', paid_at=datetime.utcnow(),
-                )
+                free_payment = ListingPayment(reference=f'FREE-LIST-{uuid.uuid4().hex}', seller_id=current_user.id, product_id=product.id,
+                    name=name, price=float(price), description=description, category_id=category_id, cover_image=cover,
+                    screenshots=','.join(screenshots), duration_hours=24, fee_percent=0, amount_kobo=0, status='free', paid_at=datetime.utcnow())
                 db.session.add(free_payment)
                 db.session.flush()
                 create_placement(product, current_user.id, 24, 0, 0, free_payment.id, True)
+                contact.free_listing_used = True
                 db.session.commit()
                 flash('Your first listing is live — complimentary for 24 hours.')
                 return redirect(url_for('seller_dashboard'))
@@ -330,12 +300,9 @@ def marketplace_payment_layer():
             amount_kobo = int((fee_amount * 100).to_integral_value(rounding=ROUND_HALF_UP))
             if amount_kobo <= 0:
                 raise ValueError('This listing fee is too small to process. Increase the product price.')
-
-            payment = ListingPayment(
-                reference=f'MAX-LIST-{uuid.uuid4().hex}', seller_id=current_user.id, name=name, price=float(price),
+            payment = ListingPayment(reference=f'MAX-LIST-{uuid.uuid4().hex}', seller_id=current_user.id, name=name, price=float(price),
                 description=description, category_id=category_id, cover_image=cover, screenshots=','.join(screenshots),
-                duration_hours=duration, fee_percent=fee_percent, amount_kobo=amount_kobo, status='pending',
-            )
+                duration_hours=duration, fee_percent=fee_percent, amount_kobo=amount_kobo, status='pending')
             db.session.add(payment)
             db.session.commit()
             try:
