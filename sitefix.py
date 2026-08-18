@@ -9,7 +9,7 @@ import base64
 import io
 import uuid
 
-from flask import Response, abort
+from flask import Response, abort, send_from_directory
 from PIL import Image, ImageOps
 from sqlalchemy import event, inspect, text
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -86,8 +86,6 @@ def persistent_save_image(file):
         else:
             image = image.convert('RGB')
 
-        # Keep database-backed assets comfortably small. This avoids MySQL
-        # packet/row-size surprises when sellers upload large phone photos.
         encoded = None
         for quality in (78, 68, 58, 48):
             output = io.BytesIO()
@@ -130,6 +128,13 @@ def media_asset(media_key):
     return Response(payload, mimetype=asset.mime_type, headers={
         'Cache-Control': 'public, max-age=31536000, immutable'
     })
+
+
+@app.get('/sw.js')
+def service_worker():
+    """Serve the worker from / so it can control the whole Maximise origin."""
+    return send_from_directory(app.static_folder, 'sw.js', mimetype='application/javascript',
+                               max_age=0, conditional=False)
 
 
 @app.errorhandler(500)
