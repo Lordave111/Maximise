@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Following · Maximise{% endblock %}
+{% block content %}
+<div class="dash-shell">
+<section class="dash-hero"><div><div class="eyebrow">MAXIMISE / NETWORK</div><h1>Sellers you <span class="gradient">follow.</span></h1><p>Your personal feed of stores whose latest goods you want to see first.</p></div><div class="metric-card"><strong>{{ sellers|length }}</strong><span>Following</span></div></section>
+{% if sellers %}<div class="grid">{% for seller in sellers %}<article class="panel"><div class="seller-mini"><span class="avatar">{{ seller.username[:1]|upper }}</span><div><strong>{{ seller.username }}</strong><div class="meta">@{{ seller.seller_slug }}</div></div></div><div class="gold-line"></div><p class="meta">{{ seller.products|selectattr('is_sold_out','equalto',false)|list|length }} active goods</p><div class="card-foot"><a class="btn" href="{{ url_for('seller_page',seller_slug=seller.seller_slug) }}"><i class="ri-store-2-line"></i> Open store</a><form method="post" action="{{ url_for('follow_seller',seller_slug=seller.seller_slug) }}"><button class="btn ghost" type="submit"><i class="ri-user-unfollow-line"></i> Unfollow</button></form></div></article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-user-follow-line"></i><strong>You are not following any sellers.</strong><p>Open a seller's storefront and tap Follow seller.</p><a class="btn" href="{{ url_for('market') }}">Explore market</a></div>{% endif %}
+</div>
+{% endblock %}
