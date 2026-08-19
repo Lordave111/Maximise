@@ -1,36 +1,18 @@
 {% extends 'base.html' %}
 {% block title %}Analytics · Maximise{% endblock %}
 {% block content %}
-<div class="dash-shell">
+<div class="dash-shell seller-page">
 <section class="dash-hero">
-  <div><div class="eyebrow">SELLER INTELLIGENCE</div><h1>Know your <span class="gradient">audience.</span></h1><p>See how your products are performing and keep track of the people following your storefront.</p></div>
+  <div><div class="eyebrow"><i class="ri-bar-chart-box-line"></i> SELLER INTELLIGENCE</div><h1>Know your <span class="gradient">audience.</span></h1><p>See how your products are performing and keep track of the people following your storefront.</p></div>
   <div class="dash-actions"><a class="btn ghost" href="{{ url_for('seller_dashboard') }}"><i class="ri-arrow-left-line"></i> Seller Dashboard</a><a class="btn" href="{{ url_for('seller_followers_production') }}"><i class="ri-group-line"></i> Followers</a></div>
 </section>
-<section class="dash-metrics">
-  <div class="metric-card"><i class="ri-eye-line"></i><strong>{{ total_views }}</strong><span>Total product views</span></div>
-  <div class="metric-card"><i class="ri-user-follow-line"></i><strong>{{ follower_count }}</strong><span>Followers</span></div>
-  <div class="metric-card"><i class="ri-box-3-line"></i><strong>{{ analytics|length }}</strong><span>Tracked products</span></div>
-</section>
+<section class="dash-metrics"><div class="metric-card"><i class="ri-eye-line"></i><strong>{{ total_views }}</strong><span>Total product views</span></div><div class="metric-card"><i class="ri-user-follow-line"></i><strong>{{ follower_count }}</strong><span>Followers</span></div><div class="metric-card"><i class="ri-box-3-line"></i><strong>{{ analytics|length }}</strong><span>Tracked products</span></div></section>
 <section class="dash-columns">
 <div class="panel">
   <div class="section-head" style="margin-top:0"><div><div class="eyebrow">PRODUCT PERFORMANCE</div><h2>Who viewed your goods</h2><p>Logged-in viewers are shown by username. Anonymous visits remain aggregate-only.</p></div></div>
-  {% if analytics %}
-  <div class="grid">
-  {% for item in analytics %}
-    <article class="card">
-      <div class="media"><img src="{{ item.product.cover_image or url_for('static', filename='uploads/default.png') }}" alt="{{ item.product.name }}" loading="lazy" onerror="this.onerror=null;this.src='{{ url_for('static', filename='uploads/default.png') }}'"></div>
-      <div class="card-body"><div class="meta">{{ item.product.category.name if item.product.category else 'General' }}</div><h3>{{ item.product.name }}</h3>
-        <div class="quick-grid" style="margin-top:14px"><div class="quick"><strong>{{ item.views }}</strong><small>Total views</small></div><div class="quick"><strong>{{ item.unique_viewers }}</strong><small>Unique members</small></div><div class="quick"><strong>{{ item.recent_views }}</strong><small>Last 7 days</small></div><div class="quick"><strong>{{ item.anonymous_views }}</strong><small>Guest views</small></div></div>
-        <div class="gold-line"></div><div class="eyebrow">RECENT VIEWERS</div>
-        {% if item.viewers %}<div class="list">{% for viewer, viewed_at in item.viewers[:8] %}<div class="list-row"><span><i class="ri-user-line"></i> {{ viewer.username }}</span><small>{{ viewed_at.strftime('%d %b · %H:%M') if viewed_at else '' }}</small></div>{% endfor %}</div>{% else %}<p class="muted">No logged-in viewers yet.</p>{% endif %}
-      </div>
-    </article>
-  {% endfor %}
-  </div>
-  {% else %}<div class="empty"><i class="ri-bar-chart-box-line"></i><strong>No product analytics yet.</strong><p>Publish a product and views will appear here.</p></div>{% endif %}
+  {% if analytics %}<div class="analytics-grid">
+  {% for item in analytics %}<article class="card"><div class="media"><img src="{{ item.product.cover_image or url_for('static', filename='uploads/default.png') }}" alt="{{ item.product.name }}" loading="lazy" onerror="this.onerror=null;this.src='{{ url_for('static', filename='uploads/default.png') }}'"></div><div class="card-body"><div class="meta">{{ item.product.category.name if item.product.category else 'General' }}</div><h3>{{ item.product.name }}</h3><div class="quick-grid" style="margin-top:14px"><div class="quick"><strong>{{ item.views }}</strong><small>Total views</small></div><div class="quick"><strong>{{ item.unique_viewers }}</strong><small>Unique members</small></div><div class="quick"><strong>{{ item.recent_views }}</strong><small>Last 7 days</small></div><div class="quick"><strong>{{ item.anonymous_views }}</strong><small>Guest views</small></div></div><div class="gold-line"></div><div class="eyebrow">RECENT VIEWERS</div>{% if item.viewers %}<div class="list">{% for viewer, viewed_at in item.viewers[:8] %}<div class="list-row"><span><i class="ri-user-line"></i> {{ viewer.username }}</span><small>{{ viewed_at.strftime('%d %b · %H:%M') if viewed_at else '' }}</small></div>{% endfor %}</div>{% else %}<p class="muted">No logged-in viewers yet.</p>{% endif %}</div></article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-bar-chart-box-line"></i><strong>No product analytics yet.</strong><p>Publish a product and views will appear here.</p></div>{% endif %}
 </div>
-<aside class="panel"><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers</h2><p>People who chose to follow your storefront.</p><div class="gold-line"></div>
-{% if followers %}<div class="list">{% for follower in followers[:20] %}<div class="list-row"><span><i class="ri-user-heart-line"></i> {{ follower.username }}</span><small>{{ follower.email }}</small></div>{% endfor %}</div><a class="btn ghost" style="width:100%;margin-top:16px" href="{{ url_for('seller_followers_production') }}">View all followers</a>{% else %}<div class="empty"><i class="ri-user-add-line"></i><strong>No followers yet.</strong><p>Share your storefront to start building your audience.</p></div>{% endif %}
-</aside>
+<aside class="panel"><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers</h2><p>People who chose to follow your storefront.</p><div class="gold-line"></div>{% if followers %}<div class="list">{% for follower in followers[:20] %}<div class="follower-row"><span class="follower-meta"><strong><i class="ri-user-heart-line"></i> {{ follower.username }}</strong><small>{{ follower.email }}</small></span></div>{% endfor %}</div><a class="btn ghost" style="width:100%;margin-top:16px" href="{{ url_for('seller_followers_production') }}">View all followers</a>{% else %}<div class="empty"><i class="ri-user-add-line"></i><strong>No followers yet.</strong><p>Share your storefront to start building your audience.</p></div>{% endif %}</aside>
 </section></div>
 {% endblock %}
