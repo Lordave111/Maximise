@@ -8,7 +8,8 @@ redeploys on an ephemeral web service.
 import base64
 import io
 import uuid
-from datetime import timedelta
+from datetime import timedelta, datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 from flask import Response, abort, send_from_directory, flash, redirect, render_template, request, url_for
 from flask_login import login_user as _flask_login_user, current_user, login_required
@@ -19,6 +20,22 @@ from sqlalchemy.orm import Session
 
 from app import app, db, Product
 import bootstrap
+
+# bootstrap has a legacy storefront catch-all before_request. It sees
+# /seller/followers and /seller/insights as storefront slugs and returns a 404
+# before Flask can dispatch to the real seller tools. Remove only that legacy
+# handler; the dedicated seller routes remain registered below.
+for _before_fn in list(app.before_request_funcs.get(None, [])):
+    if getattr(_before_fn, '__name__', '') == 'marketplace_payment_layer':
+        app.before_request_funcs[None].remove(_before_fn)
+
+# Current marketplace pricing: 12h = 10%, 24h = 20%.
+def _listing_fee(price, hours):
+    rate = Decimal('0.10') if int(hours) == 12 else Decimal('0.20')
+    amount = (Decimal(str(price)) * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return float(rate * 100), amount
+
+bootstrap.listing_fee = _listing_fee
 
 app.config.update(
     PERMANENT_SESSION_LIFETIME=timedelta(days=30),
@@ -152,9 +169,6 @@ def legacy_upload(filename):
     return send_from_directory('static/uploads', filename)
 
 
-# Production-safe aliases are registered before optional feature-module routes.
-# This guarantees that the seller dashboard buttons resolve even if a stale
-# worker has loaded an older copy of social.py.
 @app.get('/seller/followers', endpoint='seller_followers_production')
 @login_required
 def seller_followers_production():
@@ -184,13 +198,11 @@ def seller_insights_production():
     follower_map = {user.id: user for user in followers}
     followers = [follower_map[row.buyer_id] for row in follower_rows if row.buyer_id in follower_map]
     analytics = []
-    from datetime import datetime
-    from datetime import timedelta as _timedelta
     for product in products:
         total_views = social.ProductView.query.filter_by(product_id=product.id).count()
         unique_logged_in = db.session.query(social.ProductView.viewer_id).filter(social.ProductView.product_id == product.id, social.ProductView.viewer_id.isnot(None)).distinct().count()
         anonymous_views = social.ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
-        recent_views = social.ProductView.query.filter(social.ProductView.product_id == product.id, social.ProductView.viewed_at >= datetime.utcnow() - _timedelta(days=7)).count()
+        recent_views = social.ProductView.query.filter(social.ProductView.product_id == product.id, social.ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7)).count()
         viewer_rows = social.ProductView.query.filter(social.ProductView.product_id == product.id, social.ProductView.viewer_id.isnot(None)).order_by(social.ProductView.viewed_at.desc()).limit(20).all()
         viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
         viewer_users = social.User.query.filter(social.User.id.in_(viewer_ids)).all() if viewer_ids else []
