@@ -5,7 +5,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import event, select
 
 from app import app, db, Product, User, unique_seller_slug
-from bootstrap import SellerContact, ListingPlacement
+from bootstrap import SellerContact, ListingPlacement, get_contact
 
 
 class SellerFollow(db.Model):
@@ -178,6 +178,49 @@ def seller_insights():
         analytics.append({'product': product, 'views': total_views, 'unique_viewers': unique_logged_in, 'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers})
     total_views = sum(item['views'] for item in analytics)
     return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
+
+
+@app.get('/seller/followers/<int:buyer_id>')
+@login_required
+def seller_follower_detail(buyer_id):
+    if current_user.role != 'seller':
+        flash('Seller access required.')
+        return redirect(url_for('market'))
+    follow = SellerFollow.query.filter_by(seller_id=current_user.id, buyer_id=buyer_id).first_or_404()
+    buyer = User.query.get_or_404(buyer_id)
+    viewed = ProductView.query.filter_by(viewer_id=buyer.id).order_by(ProductView.viewed_at.desc()).limit(20).all()
+    viewed_product_ids = [row.product_id for row in viewed]
+    products = Product.query.filter(Product.id.in_(viewed_product_ids), Product.seller_id == current_user.id).all() if viewed_product_ids else []
+    product_map = {p.id: p for p in products}
+    seller_views = [(product_map[row.product_id], row.viewed_at) for row in viewed if row.product_id in product_map]
+    return render_template('seller_follower_detail.html', follower=buyer, followed_at=follow.created_at, seller_views=seller_views)
+
+
+@app.get('/for-you')
+@login_required
+def for_you():
+    if current_user.role != 'buyer':
+        return redirect(url_for('dashboard'))
+    followed_ids = [row.seller_id for row in SellerFollow.query.filter_by(buyer_id=current_user.id).all()]
+    followed_products = []
+    if followed_ids:
+        followed_products = Product.query.filter(Product.seller_id.in_(followed_ids), Product.is_sold_out.is_(False)).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+    excluded = {p.id for p in followed_products}
+    fresh = Product.query.filter(Product.is_sold_out.is_(False), ~Product.id.in_(excluded) if excluded else True).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+    return render_template('for_you.html', followed_products=followed_products, fresh=fresh, following_count=len(followed_ids))
+
+
+# app.py's original product_detail route does not provide the placement/contact
+# objects required by the production product template. Replace its view
+# function while keeping the existing Flask route and endpoint intact.
+def production_product_detail(id):
+    product = Product.query.get_or_404(id)
+    placement = ListingPlacement.query.filter_by(product_id=product.id).first()
+    screenshots = [s for s in (product.screenshots or '').split(',') if s]
+    return render_template('product_detail.html', product=product, screenshots=screenshots, contact=get_contact(product.seller), placement=placement)
+
+
+app.view_functions['product_detail'] = production_product_detail
 
 
 @app.get('/admin/control')
