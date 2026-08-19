@@ -213,6 +213,24 @@ def seller_insights_production():
     return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
 
 
+@app.after_request
+def seller_checkout_feedback(response):
+    # The Paystack callback already redirects to Seller Dashboard. Add a
+    # specific confirmation with the product name and live duration so the
+    # seller immediately knows what happened after checkout.
+    if request.path == '/payments/paystack/callback' and response.status_code in (301, 302, 303, 307, 308) and current_user.is_authenticated:
+        reference = (request.args.get('reference') or request.args.get('trxref') or '').strip()
+        if reference:
+            payment = bootstrap.ListingPayment.query.filter_by(reference=reference, seller_id=current_user.id).first()
+            if payment and payment.status == 'paid' and payment.product_id:
+                placement = bootstrap.ListingPlacement.query.filter_by(product_id=payment.product_id).first()
+                hours = placement.duration_hours if placement else payment.duration_hours
+                product = Product.query.get(payment.product_id)
+                if product:
+                    flash(f'✓ {product.name} has been uploaded successfully and is now live for {hours} hours.')
+    return response
+
+
 # Feature modules register the rest of the marketplace lifecycle routes.
 import social  # noqa: E402,F401
 import seller_features  # noqa: E402,F401
