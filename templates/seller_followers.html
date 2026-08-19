@@ -1,7 +1,14 @@
 {% extends 'base.html' %}
 {% block title %}Followers · Maximise{% endblock %}
 {% block content %}
-<div class="dash-shell"><section class="dash-hero"><div><div class="eyebrow">YOUR AUDIENCE</div><h1>Storefront <span class="gradient">followers.</span></h1><p>See the people who chose to keep up with your latest products.</p></div><div class="dash-actions"><a class="btn ghost" href="{{ url_for('seller_insights_production') }}"><i class="ri-bar-chart-box-line"></i> Analytics</a><a class="btn" href="{{ url_for('seller_dashboard') }}"><i class="ri-store-2-line"></i> Seller Dashboard</a></div></section>
-<section class="panel"><div class="section-head" style="margin-top:0"><div><div class="eyebrow">FOLLOWERS · {{ followers|length }}</div><h2>Your community</h2></div></div>
-{% if followers %}<div class="list">{% for follower, followed_at in followers %}<div class="list-row"><span><i class="ri-user-heart-line"></i> <strong>{{ follower.username }}</strong></span><small>{{ follower.email }} · followed {{ followed_at.strftime('%d %b %Y') if followed_at else '' }}</small></div>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-user-add-line"></i><strong>No followers yet.</strong><p>Your follower list will appear here when buyers follow your store.</p></div>{% endif %}</section></div>
+<div class="dash-shell seller-page">
+<section class="dash-hero">
+  <div><div class="eyebrow"><i class="ri-group-line"></i> YOUR AUDIENCE</div><h1>Storefront <span class="gradient">followers.</span></h1><p>See the people who chose to keep up with your latest products.</p></div>
+  <div class="dash-actions"><a class="btn ghost" href="{{ url_for('seller_insights_production') }}"><i class="ri-bar-chart-box-line"></i> Analytics</a><a class="btn" href="{{ url_for('seller_dashboard') }}"><i class="ri-store-2-line"></i> Seller Dashboard</a></div>
+</section>
+<section class="dash-metrics"><div class="metric-card"><i class="ri-user-heart-line"></i><strong>{{ followers|length }}</strong><span>Total followers</span></div><div class="metric-card"><i class="ri-notification-3-line"></i><strong>LIVE</strong><span>New-post alerts</span></div></section>
+<section class="panel">
+  <div class="section-head" style="margin-top:0"><div><div class="eyebrow">FOLLOWERS · {{ followers|length }}</div><h2>Your community</h2><p>People following your storefront will receive notifications about new listings.</p></div></div>
+  {% if followers %}<div class="list">{% for follower, followed_at in followers %}<div class="follower-row"><span class="follower-meta"><strong><i class="ri-user-heart-line"></i> {{ follower.username }}</strong><small>{{ follower.email }}</small></span><small>Followed {{ followed_at.strftime('%d %b %Y') if followed_at else 'recently' }}</small></div>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-user-add-line"></i><strong>No followers yet.</strong><p>Your follower list will appear here when buyers follow your store.</p></div>{% endif %}
+</section></div>
 {% endblock %}
