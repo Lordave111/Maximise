@@ -25,6 +25,8 @@ body.light input,body.light select,body.light textarea{background:rgba(255,253,2
 .chip.active,.chip:hover,nav a:hover{color:var(--gold3);border-color:rgba(176,138,62,.40);background:rgba(176,138,62,.075)}
 .gold-line{background:linear-gradient(90deg,transparent,#8a6a2f,#d4af62,#8a6a2f,transparent);opacity:.55}
 .page-progress{background:linear-gradient(90deg,#6d4d1c,#b08a3e,#d4af62,#8a6a2f);box-shadow:0 0 14px rgba(176,138,62,.35)}
+#pageProgress::after{content:'M';position:fixed;right:16px;bottom:16px;width:30px;height:30px;border:1px solid rgba(212,175,98,.34);border-radius:10px;display:grid;place-items:center;background:rgba(10,9,7,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);color:#d4af62;font:800 12px/1 Inter,sans-serif;letter-spacing:.08em;box-shadow:0 8px 28px rgba(0,0,0,.4),0 0 22px rgba(176,138,62,.08);animation:maximiseMiniSpin 1.6s linear infinite;z-index:10001;pointer-events:none}
+@keyframes maximiseMiniSpin{0%{transform:rotate(0deg);box-shadow:0 8px 28px rgba(0,0,0,.4),0 0 12px rgba(176,138,62,.08)}50%{transform:rotate(180deg);box-shadow:0 8px 28px rgba(0,0,0,.4),0 0 24px rgba(176,138,62,.18)}100%{transform:rotate(360deg);box-shadow:0 8px 28px rgba(0,0,0,.4),0 0 12px rgba(176,138,62,.08)}}
 .loader{background:radial-gradient(circle at center,rgba(24,19,11,.98),rgba(2,2,2,.995) 60%)}
 .loader-ring{border-color:rgba(176,138,62,.15);border-top-color:#d4af62;border-right-color:#8a6a2f;box-shadow:0 0 32px rgba(176,138,62,.18)}
 .loader-core strong{letter-spacing:.32em;background:linear-gradient(90deg,#8a6a2f,#d4af62,#8a6a2f);-webkit-background-clip:text;background-clip:text;color:transparent}
