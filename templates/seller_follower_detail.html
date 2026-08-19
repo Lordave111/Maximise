@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}{{ follower.username }} · Followers · Maximise{% endblock %}
+{% block content %}
+<div class="dash-shell seller-page follower-detail-page">
+  <section class="dash-hero">
+    <div><div class="eyebrow"><i class="ri-user-heart-line"></i> FOLLOWER PROFILE</div><h1>{{ follower.username }} <span class="gradient">.</span></h1><p>This profile is visible only to you as the seller. Review contact details and the buyer's relationship with your store.</p></div>
+    <div class="dash-actions"><a class="btn ghost" href="{{ url_for('seller_followers_production') }}"><i class="ri-arrow-left-line"></i> Back to Followers</a></div>
+  </section>
+  <section class="dash-columns">
+    <div class="panel">
+      <div class="eyebrow">CONTACT DETAILS</div><h2>{{ follower.username }}</h2>
+      <div class="private-contact"><div><i class="ri-mail-line"></i><span><small>Email</small><strong>{{ follower.email }}</strong></span></div></div>
+      <div class="gold-line"></div>
+      <div class="relationship-card"><div class="eyebrow">RELATIONSHIP WITH YOUR STORE</div><div class="relationship-row"><span><i class="ri-user-follow-line"></i> Following since</span><strong>{{ followed_at.strftime('%d %b %Y · %H:%M') if followed_at else 'Recently' }}</strong></div><div class="relationship-row"><span><i class="ri-eye-line"></i> Your products viewed</span><strong>{{ seller_views|length }}</strong></div></div>
+    </div>
+    <aside class="panel"><div class="eyebrow">RECENT STORE ACTIVITY</div><h2>Product interest</h2><p>Recent views of your products by this follower.</p>
+      {% if seller_views %}<div class="list">{% for product, viewed_at in seller_views %}<a class="list-row relationship-link" href="{{ url_for('product_detail', id=product.id) }}"><span><i class="ri-shopping-bag-3-line"></i> {{ product.name }}</span><small>{{ viewed_at.strftime('%d %b · %H:%M') if viewed_at else '' }}</small></a>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-eye-off-line"></i><strong>No recent product views.</strong><p>This follower has not recently viewed one of your tracked products.</p></div>{% endif %}
+    </aside>
+  </section>
+</div>
+{% endblock %}
