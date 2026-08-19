@@ -10,8 +10,8 @@ import io
 import uuid
 from datetime import timedelta
 
-from flask import Response, abort, send_from_directory
-from flask_login import login_user as _flask_login_user
+from flask import Response, abort, send_from_directory, flash, redirect, render_template, request, url_for
+from flask_login import login_user as _flask_login_user, current_user, login_required
 from PIL import Image, ImageOps
 from sqlalchemy import event, inspect, text
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -149,13 +149,58 @@ def media(media_key):
 
 @app.get('/uploads/<path:filename>')
 def legacy_upload(filename):
-    # Keep old templates/links working where a legacy file exists.
     return send_from_directory('static/uploads', filename)
 
 
-# IMPORTANT: Render starts `sitefix:app`, so modules that register routes must
-# be imported here. Importing only bootstrap leaves /seller/followers and
-# /seller/insights unregistered, which produces a 404 even though their route
-# functions exist in the source tree.
+# Production-safe aliases are registered before optional feature-module routes.
+# This guarantees that the seller dashboard buttons resolve even if a stale
+# worker has loaded an older copy of social.py.
+@app.get('/seller/followers', endpoint='seller_followers_production')
+@login_required
+def seller_followers_production():
+    if current_user.role != 'seller':
+        flash('Seller access only.')
+        return redirect(url_for('market'))
+    social = __import__('social')
+    rows = social.SellerFollow.query.filter_by(seller_id=current_user.id).order_by(social.SellerFollow.created_at.desc()).all()
+    follower_ids = [row.buyer_id for row in rows]
+    users = social.User.query.filter(social.User.id.in_(follower_ids)).all() if follower_ids else []
+    by_id = {user.id: user for user in users}
+    followers = [(by_id[row.buyer_id], row.created_at) for row in rows if row.buyer_id in by_id]
+    return render_template('seller_followers.html', followers=followers)
+
+
+@app.get('/seller/insights', endpoint='seller_insights_production')
+@login_required
+def seller_insights_production():
+    if current_user.role != 'seller':
+        flash('Seller access required.')
+        return redirect(url_for('market'))
+    social = __import__('social')
+    products = Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(), Product.id.desc()).all()
+    follower_rows = social.SellerFollow.query.filter_by(seller_id=current_user.id).order_by(social.SellerFollow.created_at.desc()).all()
+    follower_ids = [row.buyer_id for row in follower_rows]
+    followers = social.User.query.filter(social.User.id.in_(follower_ids)).all() if follower_ids else []
+    follower_map = {user.id: user for user in followers}
+    followers = [follower_map[row.buyer_id] for row in follower_rows if row.buyer_id in follower_map]
+    analytics = []
+    from datetime import datetime
+    from datetime import timedelta as _timedelta
+    for product in products:
+        total_views = social.ProductView.query.filter_by(product_id=product.id).count()
+        unique_logged_in = db.session.query(social.ProductView.viewer_id).filter(social.ProductView.product_id == product.id, social.ProductView.viewer_id.isnot(None)).distinct().count()
+        anonymous_views = social.ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
+        recent_views = social.ProductView.query.filter(social.ProductView.product_id == product.id, social.ProductView.viewed_at >= datetime.utcnow() - _timedelta(days=7)).count()
+        viewer_rows = social.ProductView.query.filter(social.ProductView.product_id == product.id, social.ProductView.viewer_id.isnot(None)).order_by(social.ProductView.viewed_at.desc()).limit(20).all()
+        viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
+        viewer_users = social.User.query.filter(social.User.id.in_(viewer_ids)).all() if viewer_ids else []
+        viewer_map = {user.id: user for user in viewer_users}
+        viewers = [(viewer_map[row.viewer_id], row.viewed_at) for row in viewer_rows if row.viewer_id in viewer_map]
+        analytics.append({'product': product, 'views': total_views, 'unique_viewers': unique_logged_in, 'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers})
+    total_views = sum(item['views'] for item in analytics)
+    return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
+
+
+# Feature modules register the rest of the marketplace lifecycle routes.
 import social  # noqa: E402,F401
 import seller_features  # noqa: E402,F401
