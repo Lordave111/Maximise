@@ -1,0 +1,26 @@
+/* Maximise Aurora theme — loaded after the legacy luxury layer */
+:root{--mx-bg:#070a12;--mx-bg2:#0d1220;--mx-surface:rgba(18,24,39,.78);--mx-surface2:rgba(27,35,56,.62);--mx-text:#eef3ff;--mx-muted:#aab4c9;--mx-accent:#7c5cff;--mx-accent2:#35d6c5;--mx-line:rgba(124,92,255,.22);--mx-glow:rgba(124,92,255,.25)}
+body{background:radial-gradient(circle at 10% 0%,rgba(124,92,255,.16),transparent 30%),radial-gradient(circle at 92% 12%,rgba(53,214,197,.11),transparent 28%),linear-gradient(145deg,#05070d,#0a0e18 52%,#06080e);color:var(--mx-text)}
+body:before{opacity:.35}
+.topbar{background:rgba(5,8,15,.78)!important;border-bottom:1px solid rgba(124,92,255,.22)!important;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+.brand-mark{background:linear-gradient(145deg,#b8a8ff,#7c5cff 52%,#35d6c5)!important;color:#fff!important;box-shadow:0 0 30px rgba(124,92,255,.32)!important}
+nav a:hover,nav a.active,.nav-seller-link.active{color:#c8beff!important;border-color:rgba(124,92,255,.45)!important;background:rgba(124,92,255,.10)!important}
+nav .nav-cta,.btn{background:linear-gradient(135deg,#b8a8ff,#7c5cff 52%,#35d6c5)!important;color:#080b12!important;border-color:rgba(255,255,255,.22)!important;box-shadow:0 10px 35px rgba(124,92,255,.25)!important}
+.btn.ghost{background:rgba(124,92,255,.08)!important;color:#c8beff!important;border-color:rgba(124,92,255,.28)!important}
+.hero,.dash-hero,.store-hero,.for-you-hero,.buyer-feature-panel{background:linear-gradient(135deg,rgba(124,92,255,.13),rgba(7,10,18,.92) 55%,rgba(53,214,197,.05))!important;border-color:rgba(124,92,255,.25)!important;box-shadow:0 25px 80px rgba(0,0,0,.38),0 0 55px rgba(124,92,255,.08)!important}
+.card,.panel,.stat,.metric-card,.form-card,.follower-card{background:linear-gradient(145deg,rgba(18,24,39,.82),rgba(8,11,19,.90))!important;border-color:rgba(124,92,255,.18)!important;box-shadow:0 22px 65px rgba(0,0,0,.38)!important;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.card:hover,.stat:hover,.metric-card:hover,.follower-card:hover{border-color:rgba(124,92,255,.45)!important;box-shadow:0 24px 70px rgba(0,0,0,.45),0 0 32px rgba(124,92,255,.13)!important}
+.gradient{background:linear-gradient(90deg,#fff,#c8beff,#7c5cff,#75eadc,#fff);background-size:220% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:mxShimmer 6s linear infinite}
+input,select,textarea{background:rgba(10,14,23,.82)!important;border-color:rgba(124,92,255,.20)!important;color:var(--mx-text)!important}input:focus,select:focus,textarea:focus{border-color:rgba(124,92,255,.65)!important;box-shadow:0 0 0 4px rgba(124,92,255,.09),0 0 24px rgba(124,92,255,.12)!important}
+.page-progress{background:linear-gradient(90deg,#7c5cff,#b8a8ff,#35d6c5)!important;box-shadow:0 0 16px rgba(124,92,255,.55)!important}
+/* Remove legacy corner reloader/M badge */
+#pageProgress:after{display:none!important}.micro-loader{display:none!important}
+body.light{--mx-bg:#f3f6fb;--mx-bg2:#e9eef7;--mx-surface:rgba(255,255,255,.82);--mx-surface2:rgba(245,248,253,.82);--mx-text:#182033;--mx-muted:#5f6b80;--mx-accent:#6347d9;--mx-accent2:#168f82;--mx-line:rgba(99,71,217,.18);background:radial-gradient(circle at 8% 0%,rgba(99,71,217,.12),transparent 30%),radial-gradient(circle at 94% 8%,rgba(22,143,130,.09),transparent 27%),linear-gradient(145deg,#f7f9fd,#eef2f8 55%,#f8fafc)!important;color:var(--mx-text)!important}
+body.light .topbar{background:rgba(248,250,253,.78)!important;border-bottom-color:rgba(99,71,217,.18)!important;box-shadow:0 10px 40px rgba(42,50,72,.08)!important}
+body.light .card,body.light .panel,body.light .stat,body.light .metric-card,body.light .form-card,body.light .follower-card{background:rgba(255,255,255,.82)!important;border-color:rgba(99,71,217,.15)!important;box-shadow:0 18px 50px rgba(42,50,72,.09)!important;color:#182033!important}
+body.light .hero,body.light .dash-hero,body.light .store-hero,body.light .for-you-hero{background:linear-gradient(135deg,rgba(99,71,217,.10),rgba(255,255,255,.90) 58%,rgba(22,143,130,.06))!important;color:#182033!important}
+body.light input,body.light select,body.light textarea{background:rgba(255,255,255,.94)!important;color:#182033!important;border-color:rgba(99,71,217,.18)!important}
+body.light nav a{color:#465168}body.light .gradient{background:linear-gradient(90deg,#33276f,#6347d9,#168f82,#33276f);-webkit-background-clip:text;background-clip:text}
+@keyframes mxShimmer{to{background-position:220% center}}
+@media(max-width:900px){.seller-page .analytics-grid,.for-you-grid{grid-template-columns:1fr}.follower-cards{grid-template-columns:1fr}.buyer-feature-panel{flex-direction:column;align-items:flex-start}.for-you-hero{grid-template-columns:1fr;padding:28px}.for-you-orbit{min-height:250px;transform:scale(.82)}}
+@media(max-width:600px){.topbar nav{overflow-x:auto;max-width:100%;scrollbar-width:none}.topbar nav::-webkit-scrollbar{display:none}.hero,.dash-hero,.store-hero{border-radius:22px}.card,.panel{border-radius:18px}.for-you-copy h1{font-size:3.2rem}.for-you-orbit{min-height:220px}.for-you-orbit span:nth-child(3){width:240px;height:240px}}
