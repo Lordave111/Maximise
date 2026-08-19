@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}For You · Maximise{% endblock %}
+{% block content %}
+<div class="dash-shell for-you-page">
+  <section class="for-you-hero">
+    <div class="for-you-copy"><div class="eyebrow"><i class="ri-sparkling-2-line"></i> PERSONALIZED DISCOVERY</div><h1>Made <span class="gradient">for you.</span></h1><p>Products from sellers you follow come first, followed by fresh marketplace finds. Your recommendations evolve as you explore.</p><div class="for-you-actions"><a class="btn" href="{{ url_for('market') }}"><i class="ri-search-2-line"></i> Explore Marketplace</a><a class="btn ghost" href="{{ url_for('following') }}"><i class="ri-user-follow-line"></i> Following Sellers{% if following_count %} · {{ following_count }}{% endif %}</a></div></div>
+    <div class="for-you-orbit"><div class="for-you-orbit-core"><i class="ri-sparkling-fill"></i></div><span></span><span></span><span></span></div>
+  </section>
+
+  {% if followed_products %}
+  <section class="for-you-section"><div class="section-head"><div><div class="eyebrow">FROM YOUR NETWORK</div><h2>Sellers you follow</h2><p>Fresh products from stores you've chosen to keep up with.</p></div></div><div class="grid for-you-grid">{% for p in followed_products %}<article class="card for-you-card"><div class="media"><img src="{{ p.cover_image }}" alt="{{ p.name }}" loading="lazy"></div><div class="card-body"><div class="meta"><i class="ri-user-heart-line"></i> {{ p.seller.username }} · {{ p.category.name if p.category else 'General' }}</div><h3>{{ p.name }}</h3><div class="price">₦{{ '{:,.2f}'.format(p.price) }}</div><a class="btn" href="{{ url_for('product_detail', id=p.id) }}">View product <i class="ri-arrow-right-up-line"></i></a></div></article>{% endfor %}</div></section>
+  {% endif %}
+
+  <section class="for-you-section"><div class="section-head"><div><div class="eyebrow">DISCOVER NEXT</div><h2>Fresh picks</h2><p>New listings worth a look across the marketplace.</p></div><span class="live-pill"><i class="ri-pulse-line"></i> LIVE MARKET</span></div>
+    {% if fresh %}<div class="grid for-you-grid">{% for p in fresh %}<article class="card for-you-card"><div class="media"><img src="{{ p.cover_image }}" alt="{{ p.name }}" loading="lazy"></div><div class="card-body"><div class="meta">{{ p.category.name if p.category else 'General' }} · {{ p.seller.username }}</div><h3>{{ p.name }}</h3><div class="price">₦{{ '{:,.2f}'.format(p.price) }}</div><a class="btn" href="{{ url_for('product_detail', id=p.id) }}">View product <i class="ri-arrow-right-up-line"></i></a></div></article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-compass-3-line"></i><strong>Your discovery feed is warming up.</strong><p>New marketplace listings will appear here.</p></div>{% endif %}
+  </section>
+</div>
+{% endblock %}
