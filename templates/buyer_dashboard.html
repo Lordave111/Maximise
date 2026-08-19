@@ -1,26 +1,27 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard · Maximise{% endblock %}
 {% block content %}
-<div class="dash-shell">
-<section class="dash-hero">
-  <div><div class="eyebrow">PERSONAL COMMAND CENTRE</div><h1>Good to see you, <span class="gradient">{{ current_user.username }}</span>.</h1><p>Your private Maximise space for discovering new goods, managing your account and unlocking Seller Mode whenever you're ready.</p></div>
-  <div class="dash-actions"><a class="btn" href="{{ url_for('market') }}"><i class="ri-compass-3-line"></i> Explore Market</a><a class="btn ghost" href="{{ url_for('settings') }}"><i class="ri-settings-4-line"></i> Settings</a></div>
+<div class="dash-shell buyer-home">
+<section class="dash-hero buyer-hero">
+  <div><div class="eyebrow"><i class="ri-sparkling-2-line"></i> PERSONAL COMMAND CENTRE</div><h1>Good to see you, <span class="gradient">{{ current_user.username }}</span>.</h1><p>Your marketplace home for discovering fresh goods, following sellers and finding products selected around your activity.</p></div>
+  <div class="dash-actions"><a class="btn" href="{{ url_for('for_you') }}"><i class="ri-sparkling-fill"></i> For You</a><a class="btn ghost" href="{{ url_for('market') }}"><i class="ri-compass-3-line"></i> Explore Market</a><a class="btn ghost" href="{{ url_for('settings') }}"><i class="ri-settings-4-line"></i> Settings</a></div>
 </section>
 <section class="dash-metrics">
-  <div class="metric-card"><i class="ri-shopping-bag-3-line"></i><strong>{{ recent|length }}</strong><span>Fresh listings for you</span></div>
-  <div class="metric-card"><i class="ri-search-eye-line"></i><strong>Live</strong><span>Marketplace discovery</span></div>
-  <div class="metric-card"><i class="ri-user-star-line"></i><strong>Buyer</strong><span>Current account mode</span></div>
-  <div class="metric-card"><i class="ri-store-3-line"></i><strong>Open</strong><span>Seller Mode in Settings</span></div>
+  <div class="metric-card"><i class="ri-sparkling-2-line"></i><strong>For You</strong><span>Personalized discovery</span></div>
+  <div class="metric-card"><i class="ri-shopping-bag-3-line"></i><strong>{{ recent|length }}</strong><span>Fresh marketplace listings</span></div>
+  <div class="metric-card"><i class="ri-user-follow-line"></i><strong>Live</strong><span>Seller following & alerts</span></div>
+  <div class="metric-card"><i class="ri-store-add-line"></i><strong>Open</strong><span>Seller Mode in Settings</span></div>
 </section>
+<section class="buyer-feature-panel"><div><div class="eyebrow">DISCOVERY, REIMAGINED</div><h2>Your next great find is closer.</h2><p>Open For You for a more personal feed, with products from sellers you follow placed first and fresh marketplace discoveries behind them.</p></div><a class="btn" href="{{ url_for('for_you') }}"><i class="ri-arrow-right-up-line"></i> Open For You</a></section>
 <section class="dash-columns">
   <div class="panel">
     <div class="section-head" style="margin-top:0"><div><div class="eyebrow">DISCOVERY FEED</div><h2>Fresh from the market</h2><p>New products from different categories and sellers.</p></div><a class="btn ghost" href="{{ url_for('market') }}">View all</a></div>
-    {% if recent %}<div class="grid">{% for p in recent %}<article class="card"><div class="media"><img src="{{ p.cover_image }}" alt="{{ p.name }}" loading="lazy"></div><div class="card-body"><div class="meta">{{ p.category.name if p.category else 'General' }}</div><h3>{{ p.name }}</h3><div class="price">₦{{ '{:,.2f}'.format(p.price) }}</div><a class="btn" href="{{ url_for('product_detail',id=p.id) }}">Inspect <i class="ri-arrow-right-line"></i></a></div></article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-radar-line"></i><strong>Nothing new yet.</strong><p>Explore the market when fresh listings arrive.</p></div>{% endif %}
+    {% if recent %}<div class="grid">{% for p in recent %}<article class="card"><div class="media"><img src="{{ p.cover_image }}" alt="{{ p.name }}" loading="lazy"></div><div class="card-body"><div class="meta">{{ p.category.name if p.category else 'General' }}</div><h3>{{ p.name }}</h3><div class="price">₦{{ '{:,.2f}'.format(p.price) }}</div><a class="btn" href="{{ url_for('product_detail',id=p.id) }}">View product <i class="ri-arrow-right-up-line"></i></a></div></article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-radar-line"></i><strong>Nothing new yet.</strong><p>Explore the market when fresh listings arrive.</p></div>{% endif %}
   </div>
   <aside class="panel">
     <div class="eyebrow">ACCOUNT OVERVIEW</div><h2>{{ current_user.username }}</h2><p>{{ current_user.email }}</p><div class="gold-line"></div>
     <div class="list"><div class="list-row"><span>Account mode</span><strong>Buyer</strong></div><div class="list-row"><span>Marketplace</span><strong style="color:var(--gold2)">Connected</strong></div><div class="list-row"><span>Want to sell?</span><a class="btn" href="{{ url_for('settings') }}">Activate</a></div></div>
-    <div class="quick-grid"><a class="quick" href="{{ url_for('market') }}"><i class="ri-search-2-line"></i><strong>Find goods</strong><small>Search everything</small></a><a class="quick" href="{{ url_for('settings') }}"><i class="ri-store-add-line"></i><strong>Become a seller</strong><small>Open your store</small></a></div>
+    <div class="quick-grid"><a class="quick" href="{{ url_for('for_you') }}"><i class="ri-sparkling-line"></i><strong>For You</strong><small>Personalized picks</small></a><a class="quick" href="{{ url_for('market') }}"><i class="ri-search-2-line"></i><strong>Find goods</strong><small>Search everything</small></a></div>
   </aside>
 </section>
 </div>
