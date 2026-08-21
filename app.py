@@ -1,8 +1,12 @@
 import os
 import re
 import uuid
-import smtplib
-from email.message import EmailMessage
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
@@ -11,6 +15,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 app = Flask(__name__)
@@ -162,41 +167,103 @@ def _serializer():
 def make_verification_token(user):
     return _serializer().dumps({'id': user.id, 'email': user.email})
 
-def send_email(to_email, subject, text_body, html_body=None):
-    host = os.environ.get('SMTP_HOST', '').strip()
-    port = int(os.environ.get('SMTP_PORT', '587') or 587)
-    username = os.environ.get('SMTP_USERNAME', '').strip()
-    password = os.environ.get('SMTP_PASSWORD', '')
-    sender = os.environ.get('MAIL_FROM', username).strip()
-    if not host or not sender:
-        app.logger.warning('SMTP is not configured; email not sent to %s', to_email)
+def send_email(to_email, subject, text_body, html_body=None, template_id=None, action_url='', action_text='Open Merco'):
+    """Send a predefined transactional email through EmailJS REST API.
+
+    Secrets stay on the server/Render. The EmailJS public key identifies the
+    account, while the optional private key is sent only from this backend.
+    """
+    service_id = os.environ.get('EMAILJS_SERVICE_ID', '').strip()
+    public_key = os.environ.get('EMAILJS_PUBLIC_KEY', '').strip()
+    private_key = os.environ.get('EMAILJS_PRIVATE_KEY', '').strip()
+    default_template = os.environ.get('EMAILJS_TEMPLATE_ID', '').strip()
+    template = (template_id or default_template).strip()
+    if not service_id or not public_key or not template:
+        app.logger.warning('EmailJS is not configured; email not sent to %s', to_email)
         return False
-    message = EmailMessage()
-    message['From'] = sender
-    message['To'] = to_email
-    message['Subject'] = subject
-    message.set_content(text_body)
-    if html_body:
-        message.add_alternative(html_body, subtype='html')
+
+    params = {
+        'to_email': to_email,
+        'subject': subject,
+        'name': '',
+        'preheader': 'A message from Merco',
+        'message': text_body,
+        'action_url': action_url,
+        'action_text': action_text,
+        'brand_name': 'Merco',
+        'website_url': os.environ.get('MERCO_PUBLIC_URL', '').strip(),
+    }
+    payload = {
+        'service_id': service_id,
+        'template_id': template,
+        'user_id': public_key,
+        'template_params': params,
+    }
+    if private_key:
+        payload['accessToken'] = private_key
+    request = Request(
+        'https://api.emailjs.com/api/v1.0/email/send',
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+        method='POST',
+    )
     try:
-        with smtplib.SMTP(host, port, timeout=15) as smtp:
-            if os.environ.get('SMTP_TLS', '1').lower() not in {'0', 'false', 'no'}:
-                smtp.starttls()
-            if username and password:
-                smtp.login(username, password)
-            smtp.send_message(message)
-        return True
-    except Exception:
-        app.logger.exception('SMTP delivery failed for %s', to_email)
+        with urlopen(request, timeout=15) as response:
+            body = response.read().decode('utf-8', errors='replace')
+            if 200 <= response.status < 300:
+                return True
+            app.logger.error('EmailJS returned HTTP %s: %s', response.status, body[:500])
+            return False
+    except (HTTPError, URLError, TimeoutError, OSError):
+        app.logger.exception('EmailJS delivery failed for %s', to_email)
+        return False
+
+def send_merco_email(user, subject, message, action_url='', action_text='Open Merco', template_id=None):
+    params_template = template_id or os.environ.get('EMAILJS_TEMPLATE_ID', '').strip()
+    # send_email owns the fixed template design; user content remains plain text.
+    service_id = os.environ.get('EMAILJS_SERVICE_ID', '').strip()
+    public_key = os.environ.get('EMAILJS_PUBLIC_KEY', '').strip()
+    private_key = os.environ.get('EMAILJS_PRIVATE_KEY', '').strip()
+    if not service_id or not public_key or not params_template:
+        app.logger.warning('EmailJS is not configured; email not sent to %s', user.email)
+        return False
+    payload = {
+        'service_id': service_id,
+        'template_id': params_template,
+        'user_id': public_key,
+        'template_params': {
+            'to_email': user.email,
+            'subject': subject,
+            'name': user.username,
+            'preheader': 'A secure update from Merco',
+            'message': message,
+            'action_url': action_url,
+            'action_text': action_text,
+            'brand_name': 'Merco',
+            'website_url': os.environ.get('MERCO_PUBLIC_URL', '').strip(),
+        },
+    }
+    if private_key:
+        payload['accessToken'] = private_key
+    request = Request('https://api.emailjs.com/api/v1.0/email/send', data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, method='POST')
+    try:
+        with urlopen(request, timeout=15) as response:
+            response.read()
+            return 200 <= response.status < 300
+    except (HTTPError, URLError, TimeoutError, OSError):
+        app.logger.exception('EmailJS delivery failed for %s', user.email)
         return False
 
 def send_verification_email(user):
     token = make_verification_token(user)
     link = url_for('verify_email', token=token, _external=True)
-    return send_email(
-        user.email, 'Verify your Merco email',
-        f'Hi {user.username},\n\nVerify your email to unlock Seller Mode on Merco:\n{link}\n\nThis link expires in 24 hours.',
-        f'<div style="font-family:Arial,sans-serif"><h2>Verify your Merco email</h2><p>Hi {user.username},</p><p>Verify your email to unlock Seller Mode.</p><p><a href="{link}" style="display:inline-block;padding:12px 18px;background:#d4af62;color:#080705;text-decoration:none;border-radius:10px;font-weight:700">Verify email</a></p><p>This link expires in 24 hours.</p></div>'
+    return send_merco_email(
+        user,
+        'Verify your Merco email',
+        f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.',
+        action_url=link,
+        action_text='Verify my email',
+        template_id=os.environ.get('EMAILJS_VERIFICATION_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'),
     )
 
 def initialize_database():
@@ -487,7 +554,7 @@ def add_product():
             db.session.add(Product(name=name, price=price, description=request.form.get('description', '').strip(), category_id=request.form.get('category', type=int), seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots)))
             db.session.commit()
             if current_user.email_notifications:
-                send_email(current_user.email, 'Your Merco product is live', f'Your product {name} has been published to the marketplace.', f'<p>Your product <strong>{name}</strong> is now live on Merco.</p>')
+                send_merco_email(current_user, 'Your Merco product is live', f'Your product {name} is now live in the Merco marketplace.', action_url=url_for('seller_dashboard', _external=True), action_text='Open seller dashboard', template_id=os.environ.get('EMAILJS_PRODUCT_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'))
             flash('Product published to the marketplace. A confirmation email was sent if notifications are enabled.')
             return redirect(url_for('seller_dashboard'))
         except ValueError as exc:
