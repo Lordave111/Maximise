@@ -1,4 +1,4 @@
-/* Maximise language + currency preferences. Uses device locale/timezone for the automatic choice. */
+/* Merco language + currency preferences. Uses device locale/timezone for the automatic choice. */
 (function(){
   const LANGS={en:'English',fr:'Français',es:'Español',pt:'Português',ar:'العربية',ha:'Hausa',yo:'Yorùbá'};
   const CURRENCIES={NGN:'₦ Nigerian Naira',USD:'$ US Dollar',GBP:'£ British Pound',EUR:'€ Euro',GHS:'₵ Ghanaian Cedi',KES:'KSh Kenyan Shilling',ZAR:'R South African Rand'};

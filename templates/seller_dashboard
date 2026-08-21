@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Seller Hub | Maximise{% endblock %}
+{% block title %}Seller Hub | Merco{% endblock %}
 {% block content %}
 <div class="container">
     <section class="hero"><div><div class="eyebrow">Seller workspace</div><h1>Your <span>storefront.</span></h1><p>Manage your listings and keep your marketplace presence fresh.</p></div><div class="hero-panel"><div><small>Active listings</small><div class="metric">{{ products|length }}</div></div><a href="{{ url_for('add_product') }}" class="btn"><i class="ri-add-line"></i> Add Product</a></div></section>

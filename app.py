@@ -194,9 +194,9 @@ def send_verification_email(user):
     token = make_verification_token(user)
     link = url_for('verify_email', token=token, _external=True)
     return send_email(
-        user.email, 'Verify your Maximise email',
-        f'Hi {user.username},\n\nVerify your email to unlock Seller Mode on Maximise:\n{link}\n\nThis link expires in 24 hours.',
-        f'<div style="font-family:Arial,sans-serif"><h2>Verify your Maximise email</h2><p>Hi {user.username},</p><p>Verify your email to unlock Seller Mode.</p><p><a href="{link}" style="display:inline-block;padding:12px 18px;background:#d4af62;color:#080705;text-decoration:none;border-radius:10px;font-weight:700">Verify email</a></p><p>This link expires in 24 hours.</p></div>'
+        user.email, 'Verify your Merco email',
+        f'Hi {user.username},\n\nVerify your email to unlock Seller Mode on Merco:\n{link}\n\nThis link expires in 24 hours.',
+        f'<div style="font-family:Arial,sans-serif"><h2>Verify your Merco email</h2><p>Hi {user.username},</p><p>Verify your email to unlock Seller Mode.</p><p><a href="{link}" style="display:inline-block;padding:12px 18px;background:#d4af62;color:#080705;text-decoration:none;border-radius:10px;font-weight:700">Verify email</a></p><p>This link expires in 24 hours.</p></div>'
     )
 
 def initialize_database():
@@ -422,7 +422,7 @@ def buy_product(id):
     if not product.seller.whatsapp_number:
         flash('The seller has not added a WhatsApp number yet.')
         return redirect(url_for('product_detail', id=id))
-    message = quote(f"Hi, I'm interested in {product.name} on Maximise.")
+    message = quote(f"Hi, I'm interested in {product.name} on Merco.")
     return redirect(f'https://wa.me/{product.seller.whatsapp_number}?text={message}')
 
 
@@ -487,7 +487,7 @@ def add_product():
             db.session.add(Product(name=name, price=price, description=request.form.get('description', '').strip(), category_id=request.form.get('category', type=int), seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots)))
             db.session.commit()
             if current_user.email_notifications:
-                send_email(current_user.email, 'Your Maximise product is live', f'Your product {name} has been published to the marketplace.', f'<p>Your product <strong>{name}</strong> is now live on Maximise.</p>')
+                send_email(current_user.email, 'Your Merco product is live', f'Your product {name} has been published to the marketplace.', f'<p>Your product <strong>{name}</strong> is now live on Merco.</p>')
             flash('Product published to the marketplace. A confirmation email was sent if notifications are enabled.')
             return redirect(url_for('seller_dashboard'))
         except ValueError as exc:

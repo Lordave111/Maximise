@@ -1,4 +1,4 @@
-"""Production hardening layer for Maximise.
+"""Production hardening layer for Merco.
 
 Render starts this module. It loads the payment-aware Flask routes, then uses
 persistent database-backed image storage so seller uploads survive restarts and

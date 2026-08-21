@@ -13,7 +13,7 @@ for path in ROOT.rglob('*'):
         text = path.read_text(encoding='utf-8')
     except (UnicodeDecodeError, OSError):
         continue
-    updated = text.replace('MAXIMISE', 'MERCO').replace('Maximise', 'Merco')
+    updated = text.replace('MERCO', 'MERCO').replace('Merco', 'Merco')
     if updated != text:
         path.write_text(updated, encoding='utf-8')
         print(f'Rebranded {path.relative_to(ROOT)}')

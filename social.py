@@ -48,7 +48,7 @@ def notify_followers_after_product_insert(mapper, connection, target):
         return
     seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
     link = f'/product/{target.id}'
-    values = [{'user_id': row[0], 'title': f'{seller} posted a new product', 'message': f'{target.name} is now available on Maximise.', 'link': link, 'created_at': datetime.utcnow()} for row in rows]
+    values = [{'user_id': row[0], 'title': f'{seller} posted a new product', 'message': f'{target.name} is now available on Merco.', 'link': link, 'created_at': datetime.utcnow()} for row in rows]
     connection.execute(Notification.__table__.insert(), values)
 
 

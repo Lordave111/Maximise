@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}{{ product.name }} · Maximise{% endblock %}
+{% block title %}{{ product.name }} · Merco{% endblock %}
 {% block content %}
 <div class="detail">
   <div>
@@ -18,7 +18,7 @@
     <div class="section-head"><div><h2>About this product</h2><p>{{ product.description or 'No description provided.' }}</p></div></div>
   </div>
   <aside class="detail-panel">
-    <div class="eyebrow">MARKET LISTING</div><h1>{{ product.name }}</h1><div class="price">₦{{ '{:,.2f}'.format(product.price) }}</div><p>{{ product.description or 'A Maximise marketplace listing.' }}</p><p>Category: <strong>{{ product.category.name if product.category else 'General' }}</strong></p><p>Seller: <a href="{{ url_for('seller_page',seller_slug=product.seller.seller_slug) }}" style="color:var(--gold2)">{{ product.seller.username }}</a></p>
+    <div class="eyebrow">MARKET LISTING</div><h1>{{ product.name }}</h1><div class="price">₦{{ '{:,.2f}'.format(product.price) }}</div><p>{{ product.description or 'A Merco marketplace listing.' }}</p><p>Category: <strong>{{ product.category.name if product.category else 'General' }}</strong></p><p>Seller: <a href="{{ url_for('seller_page',seller_slug=product.seller.seller_slug) }}" style="color:var(--gold2)">{{ product.seller.username }}</a></p>
     {% if placement %}<div class="panel" style="margin:18px 0;padding:16px"><div class="eyebrow">VISIBILITY</div><strong>{{ placement.duration_hours }} hour placement</strong><div style="color:var(--muted);font-size:12px;margin-top:4px">Ends {{ placement.expires_at.strftime('%d %b %Y · %H:%M') }} UTC</div></div>{% endif %}
     <div class="panel" style="margin:18px 0;padding:16px"><div class="eyebrow">DIRECT CONTACT</div><div style="display:grid;gap:9px;margin-top:10px">{% if contact.phone_number %}<a href="tel:{{ contact.phone_number }}"><i class="ri-phone-line"></i> {{ contact.phone_number }}</a>{% endif %}{% if contact.public_email %}<a href="mailto:{{ contact.public_email }}"><i class="ri-mail-line"></i> {{ contact.public_email }}</a>{% endif %}{% if product.seller.whatsapp_number %}<a href="https://wa.me/{{ product.seller.whatsapp_number }}"><i class="ri-whatsapp-line"></i> WhatsApp</a>{% endif %}</div></div>
     {% if current_user.is_authenticated and current_user.id != product.seller_id %}<form method="post" action="{{ url_for('follow_seller', seller_slug=product.seller.seller_slug) }}" style="margin-bottom:10px"><button class="btn ghost" style="width:100%" type="submit"><i class="ri-user-follow-line"></i> {% if is_following_seller(product.seller_id) %}Following {{ product.seller.username }}{% else %}Follow {{ product.seller.username }}{% endif %}</button></form>{% endif %}
