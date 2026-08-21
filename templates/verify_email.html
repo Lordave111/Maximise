@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Verify your email · Maximise{% endblock %}
+{% block content %}
+<section class="form-card" style="max-width:620px;margin:48px auto;text-align:center">
+  <div class="eyebrow">ACCOUNT SECURITY</div>
+  <div style="width:76px;height:76px;margin:20px auto;border-radius:24px;display:grid;place-items:center;background:linear-gradient(145deg,#fff0ad,#d4af62);color:#111;font-size:34px"><i class="ri-mail-check-line"></i></div>
+  <h1>Verify your email</h1>
+  <p>We sent a verification link to <strong>{{ current_user.email }}</strong>. Verify it before opening your seller storefront.</p>
+  <form method="post" action="{{ url_for('resend_verification') }}" style="margin-top:24px">
+    <button class="btn" type="submit"><i class="ri-mail-send-line"></i> Resend verification email</button>
+  </form>
+  <a class="btn ghost" style="margin-top:12px" href="{{ url_for('settings') }}"><i class="ri-arrow-left-line"></i> Back to settings</a>
+</section>
+{% endblock %}
