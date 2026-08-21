@@ -1,0 +1,35 @@
+name: Apply preferences and email verification upgrade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/apply_preferences_email_upgrade.py'
+      - 'static/preferences.js'
+      - '.github/workflows/apply-preferences-email-upgrade.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply upgrade
+        run: python tools/apply_preferences_email_upgrade.py
+      - name: Commit patched app
+        run: |
+          if git diff --quiet; then
+            echo "No patch needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py templates/base.html
+          git commit -m "Add language currency preferences and seller email verification"
+          git push
