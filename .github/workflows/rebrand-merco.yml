@@ -1,0 +1,33 @@
+name: Rebrand site to Merco
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/rebrand_merco.py'
+      - '.github/workflows/rebrand-merco.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rebrand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Apply Merco branding
+        run: python tools/rebrand_merco.py
+      - name: Commit branding changes
+        run: |
+          if git diff --quiet; then
+            echo "No branding changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Rebrand marketplace from Maximise to Merco"
+          git push
