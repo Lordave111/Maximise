@@ -1,6 +1,8 @@
 import os
 import re
 import uuid
+import smtplib
+from email.message import EmailMessage
 from urllib.parse import quote, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
@@ -9,6 +11,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or os.urandom(32)
@@ -71,6 +74,10 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), default='buyer', nullable=False)
     whatsapp_number = db.Column(db.String(30))
     seller_slug = db.Column(db.String(120), unique=True)
+    preferred_language = db.Column(db.String(10), default='auto', nullable=False)
+    preferred_currency = db.Column(db.String(3), default='NGN', nullable=False)
+    email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    email_notifications = db.Column(db.Boolean, default=True, nullable=False)
     products = db.relationship('Product', backref='seller', lazy=True, cascade='all, delete-orphan')
 
 
@@ -127,7 +134,70 @@ def migrate_schema():
         if 'product' in tables and 'created_at' not in {c['name'] for c in inspector.get_columns('product')}:
             column_type = 'TIMESTAMP' if dialect == 'postgresql' else 'DATETIME'
             conn.execute(text(f'ALTER TABLE {quote_name("product")} ADD COLUMN created_at {column_type}'))
+        if 'user' in tables:
+            user_columns = {c['name'] for c in inspector.get_columns('user')}
+            if 'preferred_language' not in user_columns:
+                conn.execute(text(f"ALTER TABLE {quote_name('user')} ADD COLUMN preferred_language VARCHAR(10) NOT NULL DEFAULT 'auto'"))
+            if 'preferred_currency' not in user_columns:
+                conn.execute(text(f"ALTER TABLE {quote_name('user')} ADD COLUMN preferred_currency VARCHAR(3) NOT NULL DEFAULT 'NGN'"))
+            if 'email_verified' not in user_columns:
+                conn.execute(text(f"ALTER TABLE {quote_name('user')} ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT FALSE"))
+                conn.execute(text(f"UPDATE {quote_name('user')} SET email_verified = TRUE"))
+            if 'email_notifications' not in user_columns:
+                conn.execute(text(f"ALTER TABLE {quote_name('user')} ADD COLUMN email_notifications BOOLEAN NOT NULL DEFAULT TRUE"))
 
+
+SUPPORTED_LANGUAGES = {
+    'en': 'English', 'fr': 'Français', 'es': 'Español', 'pt': 'Português',
+    'ar': 'العربية', 'ha': 'Hausa', 'yo': 'Yorùbá'
+}
+SUPPORTED_CURRENCIES = {
+    'NGN': '₦ Nigerian Naira', 'USD': '$ US Dollar', 'GBP': '£ British Pound',
+    'EUR': '€ Euro', 'GHS': '₵ Ghanaian Cedi', 'KES': 'KSh Kenyan Shilling', 'ZAR': 'R South African Rand'
+}
+
+def _serializer():
+    return URLSafeTimedSerializer(app.config['SECRET_KEY'], salt='maximise-email-verification')
+
+def make_verification_token(user):
+    return _serializer().dumps({'id': user.id, 'email': user.email})
+
+def send_email(to_email, subject, text_body, html_body=None):
+    host = os.environ.get('SMTP_HOST', '').strip()
+    port = int(os.environ.get('SMTP_PORT', '587') or 587)
+    username = os.environ.get('SMTP_USERNAME', '').strip()
+    password = os.environ.get('SMTP_PASSWORD', '')
+    sender = os.environ.get('MAIL_FROM', username).strip()
+    if not host or not sender:
+        app.logger.warning('SMTP is not configured; email not sent to %s', to_email)
+        return False
+    message = EmailMessage()
+    message['From'] = sender
+    message['To'] = to_email
+    message['Subject'] = subject
+    message.set_content(text_body)
+    if html_body:
+        message.add_alternative(html_body, subtype='html')
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if os.environ.get('SMTP_TLS', '1').lower() not in {'0', 'false', 'no'}:
+                smtp.starttls()
+            if username and password:
+                smtp.login(username, password)
+            smtp.send_message(message)
+        return True
+    except Exception:
+        app.logger.exception('SMTP delivery failed for %s', to_email)
+        return False
+
+def send_verification_email(user):
+    token = make_verification_token(user)
+    link = url_for('verify_email', token=token, _external=True)
+    return send_email(
+        user.email, 'Verify your Maximise email',
+        f'Hi {user.username},\n\nVerify your email to unlock Seller Mode on Maximise:\n{link}\n\nThis link expires in 24 hours.',
+        f'<div style="font-family:Arial,sans-serif"><h2>Verify your Maximise email</h2><p>Hi {user.username},</p><p>Verify your email to unlock Seller Mode.</p><p><a href="{link}" style="display:inline-block;padding:12px 18px;background:#d4af62;color:#080705;text-decoration:none;border-radius:10px;font-weight:700">Verify email</a></p><p>This link expires in 24 hours.</p></div>'
+    )
 
 def initialize_database():
     db.create_all()
@@ -154,7 +224,7 @@ def inject_globals():
         categories = Category.query.order_by(Category.name.asc()).all()
     except Exception:
         categories = []
-    return {'market_categories': categories}
+    return {'market_categories': categories, 'supported_languages': SUPPORTED_LANGUAGES, 'supported_currencies': SUPPORTED_CURRENCIES}
 
 
 @app.get('/health')
@@ -212,6 +282,37 @@ def login():
     return render_template('login.html')
 
 
+@app.get('/verify-email/<token>')
+def verify_email(token):
+    try:
+        data = _serializer().loads(token, max_age=86400)
+        user = User.query.filter_by(id=int(data['id']), email=data['email']).first_or_404()
+    except (BadSignature, SignatureExpired, ValueError, TypeError):
+        flash('That verification link is invalid or has expired. Please request a new one.')
+        return redirect(url_for('login'))
+    user.email_verified = True
+    db.session.commit()
+    flash('Email verified successfully. You can now open a seller store.')
+    return redirect(url_for('login'))
+
+@app.get('/verify-email')
+@login_required
+def verify_email_notice():
+    if current_user.email_verified:
+        return redirect(url_for('settings'))
+    return render_template('verify_email.html')
+
+@app.post('/verify-email/resend')
+@login_required
+def resend_verification():
+    if current_user.email_verified:
+        flash('Your email is already verified.')
+    elif send_verification_email(current_user):
+        flash('A new verification email has been sent.')
+    else:
+        flash('Email delivery is not configured. Please contact the site administrator.')
+    return redirect(url_for('verify_email_notice'))
+
 @app.get('/logout')
 @login_required
 def logout():
@@ -233,9 +334,11 @@ def register():
         if User.query.filter_by(email=email).first():
             flash('An account with that email already exists.')
             return redirect(url_for('login'))
-        db.session.add(User(username=username, email=email, password=generate_password_hash(password), role='buyer'))
+        user = User(username=username, email=email, password=generate_password_hash(password), role='buyer', email_verified=False)
+        db.session.add(user)
         db.session.commit()
-        flash('Account created. You can become a seller anytime from Settings.')
+        sent = send_verification_email(user)
+        flash('Account created. Check your email to verify it before opening a seller store.' if sent else 'Account created, but email delivery is not configured yet. Ask the administrator to configure SMTP verification.')
         return redirect(url_for('login'))
     return render_template('register.html')
 
@@ -259,7 +362,22 @@ def dashboard():
 def settings():
     if request.method == 'POST':
         action = request.form.get('action')
+        if action == 'preferences':
+            language = request.form.get('language', 'auto').strip().lower()
+            currency = request.form.get('currency', 'NGN').strip().upper()
+            if language != 'auto' and language not in SUPPORTED_LANGUAGES: language = 'auto'
+            if currency not in SUPPORTED_CURRENCIES: currency = 'NGN'
+            current_user.preferred_language = language
+            current_user.preferred_currency = currency
+            current_user.email_notifications = request.form.get('email_notifications') == '1'
+            db.session.commit()
+            flash('Language, currency and email preferences saved.')
+            return redirect(url_for('settings'))
         if action == 'become_seller' and current_user.role == 'buyer':
+            if not current_user.email_verified:
+                send_verification_email(current_user)
+                flash('Verify your email before opening your seller store. A fresh verification link has been sent if SMTP is configured.')
+                return redirect(url_for('settings'))
             seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]
             whatsapp = request.form.get('whatsapp', '').strip()[:30]
             if not whatsapp:
@@ -311,6 +429,8 @@ def buy_product(id):
 @app.get('/seller')
 @login_required
 def seller_dashboard():
+    if current_user.role == 'seller' and not current_user.email_verified:
+        return redirect(url_for('verify_email_notice'))
     if current_user.role != 'seller':
         flash('Seller mode is available from Settings.')
         return redirect(url_for('settings'))
@@ -366,7 +486,9 @@ def add_product():
             current_user.whatsapp_number = request.form.get('whatsapp', current_user.whatsapp_number or '').strip()[:30]
             db.session.add(Product(name=name, price=price, description=request.form.get('description', '').strip(), category_id=request.form.get('category', type=int), seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots)))
             db.session.commit()
-            flash('Product published to the marketplace.')
+            if current_user.email_notifications:
+                send_email(current_user.email, 'Your Maximise product is live', f'Your product {name} has been published to the marketplace.', f'<p>Your product <strong>{name}</strong> is now live on Maximise.</p>')
+            flash('Product published to the marketplace. A confirmation email was sent if notifications are enabled.')
             return redirect(url_for('seller_dashboard'))
         except ValueError as exc:
             flash(str(exc))
