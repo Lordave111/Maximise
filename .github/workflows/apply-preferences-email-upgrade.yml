@@ -22,6 +22,8 @@ jobs:
           fetch-depth: 1
       - name: Apply upgrade
         run: python tools/apply_preferences_email_upgrade.py
+      - name: Validate Python syntax
+        run: python -m py_compile app.py
       - name: Commit patched app
         run: |
           if git diff --quiet; then
