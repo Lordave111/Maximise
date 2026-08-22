@@ -7,13 +7,13 @@ from datetime import datetime, timedelta
 import os
 import time
 
-from flask import jsonify, request, url_for
-from flask_login import current_user
-from sqlalchemy import select, inspect, text
+from flask import jsonify, request
+from sqlalchemy import select, event
 from sqlalchemy.orm.attributes import get_history
-from sqlalchemy import event
 
 from app import app, db, User, Product
+import bootstrap
+import social
 
 
 class EmailJob(db.Model):
@@ -39,7 +39,7 @@ with app.app_context():
 
 def queue_email(user_id, event_type, subject, message, action_url='', action_text='Open Merco', *, transactional=False):
     """Queue one email. Marketplace alerts respect the user's email toggle.
-    Security/account emails can pass transactional=True and always deliver.
+    Security/account emails pass transactional=True and are always delivered.
     """
     user = db.session.get(User, user_id)
     if not user or not user.email:
@@ -53,10 +53,10 @@ def queue_email(user_id, event_type, subject, message, action_url='', action_tex
     return job
 
 
-def queue_email_connection(connection, user_id, event_type, subject, message, action_url='', action_text='Open Merco'):
+def queue_email_connection(connection, user_id, event_type, subject, message, action_url='', action_text='Open Merco', *, transactional=False):
     """Queue from SQLAlchemy mapper events without opening a second session."""
-    user = connection.execute(select(User.email, User.email_notifications).where(User.id == user_id)).first()
-    if not user or not user.email or not bool(user.email_notifications):
+    row = connection.execute(select(User.email, User.email_notifications).where(User.id == user_id)).first()
+    if not row or not row.email or (not transactional and not bool(row.email_notifications)):
         return
     connection.execute(EmailJob.__table__.insert().values(
         user_id=user_id, event_type=event_type, subject=subject[:180], message=message[:2000],
@@ -73,9 +73,15 @@ def process_email_queue(limit=1):
     with app.app_context():
         jobs = (EmailJob.query.filter(EmailJob.status == 'pending', EmailJob.available_at <= datetime.utcnow())
                 .order_by(EmailJob.id.asc()).limit(max(1, min(int(limit), 10))).all())
-        for job in jobs:
+        for index, job in enumerate(jobs):
             user = db.session.get(User, job.user_id)
-            if not user or not user.email or not bool(user.email_notifications):
+            if not user or not user.email:
+                job.status = 'cancelled'
+                db.session.commit()
+                continue
+            # Marketplace alerts can be switched off. Transactional account
+            # messages remain deliverable.
+            if job.event_type not in {'verification', 'welcome', 'seller_activated', 'payment_success'} and not bool(user.email_notifications):
                 job.status = 'cancelled'
                 db.session.commit()
                 continue
@@ -102,19 +108,40 @@ def process_email_queue(limit=1):
                 job.last_error = str(exc)[:500]
                 failed += 1
             db.session.commit()
-            if jobs.index(job) < len(jobs) - 1:
+            if index < len(jobs) - 1:
                 time.sleep(1.05)
     return sent, failed
 
 
 @event.listens_for(Product, 'after_insert')
 def queue_new_product_emails(mapper, connection, target):
-    followers = connection.execute(select(__import__('social').SellerFollow.buyer_id).where(__import__('social').SellerFollow.seller_id == target.seller_id)).all()
+    followers = connection.execute(select(social.SellerFollow.buyer_id).where(social.SellerFollow.seller_id == target.seller_id)).all()
     seller_name = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
     link = f'/product/{target.id}'
     for row in followers:
         queue_email_connection(connection, row[0], 'new_product', f'{seller_name} posted a new product',
                                f'{seller_name} just posted {target.name} on Merco. Take a look while it is fresh.', link, 'View product')
+
+
+@event.listens_for(social.SellerFollow, 'after_insert')
+def queue_new_follower_email(mapper, connection, target):
+    buyer_name = connection.execute(select(User.username).where(User.id == target.buyer_id)).scalar_one_or_none() or 'A buyer'
+    seller_name = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'your store'
+    seller = connection.execute(select(User.seller_slug).where(User.id == target.seller_id)).scalar_one_or_none()
+    link = f'/seller/{seller}' if seller else '/seller'
+    queue_email_connection(connection, target.seller_id, 'new_follower', 'You have a new Merco follower',
+                           f'{buyer_name} is now following {seller_name}. Open your seller dashboard to see your followers.', link, 'View my followers')
+
+
+@event.listens_for(bootstrap.ListingPayment, 'after_update')
+def queue_payment_success_email(mapper, connection, target):
+    history = get_history(target, 'status')
+    if not history.has_changes() or target.status != 'paid':
+        return
+    product_name = target.name or 'your listing'
+    queue_email_connection(connection, target.seller_id, 'payment_success', 'Your Merco listing is live',
+                           f'Payment confirmed. {product_name} has been published/reactivated successfully for {target.duration_hours} hours.',
+                           '/seller', 'Open seller dashboard', transactional=True)
 
 
 @event.listens_for(User, 'after_update')
@@ -124,10 +151,30 @@ def queue_account_lifecycle_emails(mapper, connection, target):
     if role_history.has_changes() and target.role == 'seller' and role_history.deleted and role_history.deleted[0] == 'buyer':
         link = f'/seller/{target.seller_slug}' if target.seller_slug else '/seller'
         queue_email_connection(connection, target.id, 'seller_activated', 'Seller Mode is live on Merco',
-                               f'Your seller account is now active, {target.username}. Your storefront is ready for listings.', link, 'Open my store')
+                               f'Your seller account is now active, {target.username}. Your storefront is ready for listings.', link, 'Open my store', transactional=True)
     if verified_history.has_changes() and bool(target.email_verified) and verified_history.deleted and not bool(verified_history.deleted[0]):
         queue_email_connection(connection, target.id, 'welcome', 'Welcome to Merco',
-                               f'Welcome to Merco, {target.username}. Your email is verified and your account is ready. Explore the marketplace or open Seller Mode from Settings.', '/market', 'Explore Merco')
+                               f'Welcome to Merco, {target.username}. Your email is verified and your account is ready. Explore the marketplace or open Seller Mode from Settings.', '/market', 'Explore Merco', transactional=True)
+
+
+@app.before_request
+def expire_and_queue_listing_alerts():
+    # sitefix intentionally removes the older bootstrap before_request handler,
+    # so the production lifecycle is handled here. This keeps expiry + email
+    # alerts active on normal traffic without adding a second web process.
+    try:
+        before = {n.id for n in social.Notification.query.filter_by(title='Listing expired').all()}
+        seller_features = __import__('seller_features')
+        seller_features.expire_listings_with_notifications()
+        fresh = social.Notification.query.filter(social.Notification.title == 'Listing expired', ~social.Notification.id.in_(before) if before else True).all()
+        for notification in fresh:
+            queue_email(notification.user_id, 'listing_expired', notification.title, notification.message,
+                        notification.link or '/seller', 'Reactivate listing')
+        if fresh:
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Listing expiry/email check failed')
 
 
 @app.post('/tasks/process-emails')
@@ -143,8 +190,6 @@ def process_email_task():
 
 @app.after_request
 def process_one_email_after_request(response):
-    # Never run for the worker endpoint itself. One email keeps normal page
-    # responses quick while still making ordinary activity deliver promptly.
     if request.path != '/tasks/process-emails' and response.status_code < 500:
         try:
             process_email_queue(limit=1)
