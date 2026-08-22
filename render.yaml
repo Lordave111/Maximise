@@ -19,3 +19,19 @@ services:
         sync: false
       - key: PAYSTACK_SECRET_KEY
         sync: false
+      - key: EMAILJS_SERVICE_ID
+        sync: false
+      - key: EMAILJS_PUBLIC_KEY
+        sync: false
+      - key: EMAILJS_PRIVATE_KEY
+        sync: false
+      - key: EMAILJS_TEMPLATE_ID
+        sync: false
+      - key: EMAILJS_VERIFICATION_TEMPLATE_ID
+        sync: false
+      - key: EMAILJS_NOTIFICATION_TEMPLATE_ID
+        sync: false
+      - key: MERCO_PUBLIC_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
