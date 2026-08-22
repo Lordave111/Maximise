@@ -43,11 +43,21 @@ with app.app_context():
 
 @event.listens_for(Product, 'after_insert')
 def notify_followers_after_product_insert(mapper, connection, target):
+    seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
+    link = f'/product/{target.id}'
+
+    # The seller also gets a phone/in-app alert confirming that the listing was uploaded.
+    connection.execute(Notification.__table__.insert().values(
+        user_id=target.seller_id,
+        title='Product uploaded',
+        message=f'{target.name} has been added to your Merco listings.',
+        link=link,
+        created_at=datetime.utcnow(),
+    ))
+
     rows = connection.execute(select(SellerFollow.buyer_id).where(SellerFollow.seller_id == target.seller_id)).all()
     if not rows:
         return
-    seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
-    link = f'/product/{target.id}'
     values = [{'user_id': row[0], 'title': f'{seller} posted a new product', 'message': f'{target.name} is now available on Merco.', 'link': link, 'created_at': datetime.utcnow()} for row in rows]
     connection.execute(Notification.__table__.insert(), values)
 
