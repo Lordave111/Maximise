@@ -1,0 +1,22 @@
+/* Merco notification permission sheet */
+.merco-push-modal[hidden]{display:none!important}
+.merco-push-modal{position:fixed;inset:0;z-index:10050;display:grid;place-items:end center;padding:18px;background:rgba(0,0,0,.62);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:mercoPushFade .22s ease}
+.merco-push-card{width:min(560px,100%);border:1px solid rgba(255,208,82,.28);border-radius:28px;padding:24px;background:linear-gradient(145deg,rgba(28,24,11,.97),rgba(8,8,7,.98));box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 45px rgba(255,196,50,.12);color:#fffdf5;position:relative;overflow:hidden;transform-origin:bottom;animation:mercoPushUp .28s cubic-bezier(.2,.8,.2,1)}
+.merco-push-card:before{content:"";position:absolute;width:240px;height:240px;right:-90px;top:-130px;border-radius:50%;background:rgba(255,205,72,.16);filter:blur(4px)}
+.merco-push-icon{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;font-size:28px;background:linear-gradient(145deg,#fff0a8,#d9a82d);color:#171208;box-shadow:0 10px 30px rgba(241,190,56,.25);margin-bottom:17px}
+.merco-push-kicker{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#e8c65d;font-weight:800;margin-bottom:7px}
+.merco-push-card h2{font-size:clamp(24px,5vw,32px);line-height:1.08;margin:0 0 9px;font-weight:850;letter-spacing:-.03em}
+.merco-push-card p{margin:0;color:rgba(255,250,232,.7);font-size:15px;line-height:1.6;max-width:480px}
+.merco-push-benefits{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0}
+.merco-push-benefit{padding:11px 9px;border:1px solid rgba(255,214,96,.12);border-radius:14px;background:rgba(255,255,255,.035);font-size:11px;color:rgba(255,250,232,.78)}
+.merco-push-benefit i{display:block;color:#f2cb58;font-size:17px;margin-bottom:5px}
+.merco-push-actions{display:flex;gap:10px;margin-top:18px}
+.merco-push-enable,.merco-push-later{min-height:48px;border-radius:15px;padding:0 18px;font:inherit;font-weight:800;cursor:pointer}
+.merco-push-enable{flex:1;border:1px solid #ffe28a;background:linear-gradient(135deg,#fff1a9,#e0ad31);color:#171208;box-shadow:0 8px 25px rgba(225,174,48,.2)}
+.merco-push-later{border:1px solid rgba(255,220,110,.18);background:rgba(255,255,255,.045);color:#fff7df}
+.merco-push-enable:disabled{opacity:.65;cursor:wait}
+.merco-push-note{font-size:11px!important;margin-top:12px!important;color:rgba(255,250,232,.43)!important;text-align:center}
+@keyframes mercoPushFade{from{opacity:0}to{opacity:1}}
+@keyframes mercoPushUp{from{opacity:0;transform:translateY(28px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:560px){.merco-push-modal{padding:10px}.merco-push-card{border-radius:23px;padding:20px}.merco-push-benefits{grid-template-columns:1fr}.merco-push-benefit{display:flex;align-items:center;gap:8px}.merco-push-benefit i{margin:0}.merco-push-actions{flex-direction:column}.merco-push-later{min-height:44px}}
+@media(prefers-reduced-motion:reduce){.merco-push-modal,.merco-push-card{animation:none}}
