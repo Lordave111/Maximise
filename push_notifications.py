@@ -9,7 +9,7 @@ import os
 
 from flask import jsonify, request
 from flask_login import current_user, login_required
-from sqlalchemy import event, select
+from sqlalchemy import event, inspect, select, text
 
 from app import app, db
 import social
@@ -25,7 +25,9 @@ class PushSubscription(db.Model):
     __tablename__ = 'push_subscription'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
-    endpoint = db.Column(db.String(2000), nullable=False, unique=True)
+    # Browser push endpoints are normally well below this size. 700 characters
+    # keeps the UNIQUE index safely below MySQL's 3072-byte utf8mb4 index limit.
+    endpoint = db.Column(db.String(700), nullable=False, unique=True)
     p256dh = db.Column(db.String(500), nullable=False)
     auth = db.Column(db.String(500), nullable=False)
     user_agent = db.Column(db.String(500))
@@ -46,8 +48,43 @@ class PushJob(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
 
 
+def _migrate_push_subscription_endpoint():
+    """Repair a previously-created MySQL table from the old 2000-char schema.
+
+    MySQL/InnoDB permits a 3072-byte index with utf8mb4. A UNIQUE VARCHAR(2000)
+    endpoint therefore fails because it can require up to 8000 bytes. The new
+    700-char endpoint is comfortably within the limit and is sufficient for
+    browser push endpoints.
+    """
+    try:
+        inspector = inspect(db.engine)
+        if 'push_subscription' not in inspector.get_table_names():
+            return
+        columns = {column['name']: column for column in inspector.get_columns('push_subscription')}
+        endpoint = columns.get('endpoint')
+        if not endpoint:
+            return
+        # Only MySQL needs this particular byte-size correction. Other dialects
+        # can keep their existing column without a needless ALTER.
+        if db.engine.dialect.name != 'mysql':
+            return
+        type_text = str(endpoint.get('type', '')).lower()
+        if 'varchar(2000)' in type_text or '2000' in type_text:
+            with db.engine.begin() as connection:
+                connection.execute(text(
+                    'ALTER TABLE push_subscription MODIFY COLUMN endpoint VARCHAR(700) NOT NULL'
+                ))
+    except Exception:
+        # Database initialization must remain non-fatal. If the table cannot be
+        # inspected, the normal create_all/migration path will retry next boot.
+        app.logger.exception('Could not migrate push_subscription endpoint column')
+
+
 with app.app_context():
+    # The model is now safe for MySQL utf8mb4, so startup no longer dies while
+    # creating the push table. Repair installations created by an older build.
     db.create_all()
+    _migrate_push_subscription_endpoint()
 
 
 @event.listens_for(social.Notification, 'after_insert')
@@ -104,9 +141,6 @@ def process_push_queue(limit=10):
     if not _vapid_ready():
         return 0, 0
 
-    # Some marketplace notifications are created from a SQLAlchemy Core
-    # mapper event, so they are not present in Session.new. Reconcile only
-    # very recent records into the push queue before sending them.
     recent_cutoff = datetime.utcnow() - timedelta(minutes=5)
     existing_ids = select(PushJob.notification_id)
     recent = (social.Notification.query
@@ -167,6 +201,9 @@ def push_subscribe():
     auth = str(keys.get('auth') or '').strip()
     if not endpoint or not p256dh or not auth:
         return jsonify({'ok': False, 'error': 'Invalid push subscription.'}), 400
+    # Keep malformed/oversized browser payloads from reaching MySQL.
+    if len(endpoint) > 700:
+        return jsonify({'ok': False, 'error': 'Push endpoint is unexpectedly long.'}), 400
     row = PushSubscription.query.filter_by(endpoint=endpoint).first()
     if row:
         row.user_id = current_user.id
