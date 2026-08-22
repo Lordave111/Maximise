@@ -1,8 +1,10 @@
-/* Merco PWA phone notifications. Permission is requested only after the user
-   explicitly clicks the Enable button; previously granted permission is reused. */
+/* Merco PWA phone notifications. A branded permission sheet is shown to authenticated
+   users when notification permission is still undecided. The native browser prompt is
+   triggered only from the user's Enable button click. */
 (function () {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   let registration = null;
+  const promptSeenKey = 'merco-push-prompt-seen';
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -29,7 +31,7 @@
     const config = await getConfig();
     if (!config.enabled || !config.public_key) throw new Error('Phone notifications are not configured yet.');
     const permission = forcePermission ? await Notification.requestPermission() : Notification.permission;
-    if (permission !== 'granted') throw new Error('Notification permission was not granted.');
+    if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications are blocked. You can enable them in your browser site settings.' : 'Notification permission was not granted.');
     const reg = registration || await registerServiceWorker();
     let subscription = await reg.pushManager.getSubscription();
     if (!subscription) {
@@ -46,6 +48,20 @@
     });
     if (!response.ok) throw new Error('Could not save the notification subscription.');
     return subscription;
+  }
+
+  function closePrompt() {
+    const modal = document.getElementById('mercoPushPermission');
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.classList.remove('merco-push-open');
+  }
+
+  function openPrompt() {
+    const modal = document.getElementById('mercoPushPermission');
+    if (!modal) return;
+    modal.hidden = false;
+    document.body.classList.add('merco-push-open');
   }
 
   async function refreshButton(button) {
@@ -72,12 +88,50 @@
     } catch (_) {}
   }
 
+  async function maybeShowPermissionPrompt() {
+    if (!supported || Notification.permission !== 'default') return;
+    const userFlag = document.querySelector('[data-merco-push-user]')?.dataset.mercoPushUser;
+    if (userFlag !== '1') return;
+    if (sessionStorage.getItem(promptSeenKey) === '1') return;
+    try {
+      const config = await getConfig();
+      if (!config.enabled || !config.public_key) return;
+      sessionStorage.setItem(promptSeenKey, '1');
+      window.setTimeout(openPrompt, 650);
+    } catch (_) {}
+  }
+
   async function init() {
     if (!supported) return;
     try {
       await registerServiceWorker();
       const button = document.querySelector('[data-merco-push-enable]');
       await refreshButton(button);
+
+      const enable = document.getElementById('mercoPushEnable');
+      const later = document.getElementById('mercoPushLater');
+      if (later) later.addEventListener('click', closePrompt);
+
+      if (enable) {
+        enable.addEventListener('click', async () => {
+          enable.disabled = true;
+          enable.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Connecting...';
+          try {
+            await subscribe(true);
+            closePrompt();
+            if (button) {
+              button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
+              button.classList.add('is-enabled');
+              button.disabled = false;
+            }
+          } catch (error) {
+            enable.innerHTML = '<i class="ri-notification-3-line"></i> Enable notifications';
+            enable.disabled = false;
+            if (error?.message) alert(error.message);
+          }
+        });
+      }
+
       if (button) {
         button.addEventListener('click', async () => {
           button.disabled = true;
@@ -89,14 +143,16 @@
           } catch (error) {
             button.innerHTML = '<i class="ri-notification-3-line"></i> Enable phone alerts';
             button.disabled = false;
-            if (error && error.message) alert(error.message);
+            if (error?.message) alert(error.message);
           }
         });
       }
+
+      await maybeShowPermissionPrompt();
     } catch (_) {}
   }
 
-  window.MercoPush = { enable: () => subscribe(true), register: registerServiceWorker };
+  window.MercoPush = { enable: () => subscribe(true), register: registerServiceWorker, openPermissionPrompt: openPrompt };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
 })();
