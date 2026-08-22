@@ -1,8 +1,8 @@
-"""Small production wrapper for Render.
+"""Production wrapper for Merco.
 
-Loads the hardened Merco app and safely handles Seller Mode activation before
-Flask reaches the older settings handler. This keeps a database/contact error
-from becoming an unhelpful 500 page.
+Loads the hardened application and provides a dedicated, defensive Seller Mode
+activation endpoint so failures never turn the Settings page into a blank/500
+response.
 """
 
 from flask import flash, redirect, request, url_for
@@ -13,24 +13,16 @@ import app as app_module
 import bootstrap
 
 
-@app.before_request
-def safe_seller_activation():
-    if request.path != '/settings' or request.method != 'POST':
-        return None
-    if request.form.get('action') != 'become_seller':
-        return None
+def _activate_seller():
     if not current_user.is_authenticated:
-        return None
+        return redirect(url_for('login'))
     if current_user.role != 'buyer':
-        return None
+        return redirect(url_for('dashboard'))
 
     try:
         if not current_user.email_verified:
             sent = app_module.send_verification_email(current_user)
-            flash(
-                'Verify your email before opening your seller store. '
-                + ('A fresh verification email has been sent.' if sent else 'Please verify your email first.')
-            )
+            flash('Verify your email before opening your seller store. ' + ('A fresh verification email has been sent.' if sent else 'Please verify your email first.'))
             return redirect(url_for('settings'))
 
         seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]
@@ -47,17 +39,14 @@ def safe_seller_activation():
         if not whatsapp:
             raise ValueError('Add a WhatsApp number so buyers can contact you.')
 
-        # SellerContact is the canonical public-contact record used by the
-        # storefront. save_contact creates it when an older account has none.
         bootstrap.save_contact(current_user, public_email, phone, require_phone=True)
         current_user.role = 'seller'
         current_user.username = seller_name
         current_user.seller_slug = app_module.unique_seller_slug(seller_name, current_user.id)
         current_user.whatsapp_number = whatsapp
-        db = app_module.db
-        db.session.commit()
+        app_module.db.session.commit()
 
-        flash('Seller mode activated. Your storefront is now live.')
+        flash('Seller Mode activated successfully. Your storefront is now live.')
         return redirect(url_for('seller_dashboard'))
     except ValueError as exc:
         app_module.db.session.rollback()
@@ -66,9 +55,24 @@ def safe_seller_activation():
     except Exception:
         app_module.db.session.rollback()
         app.logger.exception('Seller activation failed')
-        flash('We could not activate Seller Mode right now. Your account was not changed. Please try again.')
+        flash('Seller Mode could not be activated. No account changes were saved. Please try again.')
         return redirect(url_for('settings'))
 
 
-# Keep the normal WSGI object name expected by Render.
+@app.route('/activate-seller', methods=['POST'], endpoint='activate_seller_production')
+@login_required
+def activate_seller_production():
+    return _activate_seller()
+
+
+@app.before_request
+def safe_seller_activation():
+    # Backward compatibility for older Settings forms still posting here.
+    if request.path != '/settings' or request.method != 'POST':
+        return None
+    if request.form.get('action') != 'become_seller':
+        return None
+    return _activate_seller()
+
+
 application = app
