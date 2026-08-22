@@ -7,7 +7,7 @@
 
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
   <div class="eyebrow">DISPLAY & NOTIFICATIONS</div>
-  <h2>Language, currency & email</h2>
+  <h2>Language, currency & notifications</h2>
   <p>Merco can automatically use your device region, or you can choose your preferences yourself.</p>
   <form method="post" class="two-col" style="margin-top:18px">
     <input type="hidden" name="action" value="preferences">
@@ -16,6 +16,14 @@
     <label style="display:flex;align-items:center;gap:10px;grid-column:1/-1"><input type="checkbox" name="email_notifications" value="1" {% if current_user.email_notifications %}checked{% endif %}> Receive Merco email notifications</label>
     <button class="btn" type="submit"><i class="ri-save-3-line"></i> Save preferences</button>
   </form>
+
+  <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)">
+    <div class="eyebrow">PHONE NOTIFICATIONS</div>
+    <h3>Stay updated like a normal app</h3>
+    <p>Enable phone alerts to receive instant notifications when someone follows your store, when a followed seller publishes a product, and when your listings expire.</p>
+    <button class="btn" type="button" data-merco-push-enable><i class="ri-notification-3-line"></i> Enable phone alerts</button>
+    <small style="display:block;margin-top:10px;color:var(--muted)">Your browser will ask for notification permission. You can change this later in your phone/browser settings.</small>
+  </div>
 
   {% if not current_user.email_verified %}
   <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)"><div class="eyebrow">EMAIL VERIFICATION</div><h3>Your email is not verified</h3><p>Verify <strong>{{ current_user.email }}</strong> before opening a seller storefront.</p><a class="btn" href="{{ url_for('verify_email_notice') }}"><i class="ri-mail-check-line"></i> Verify email</a></div>
