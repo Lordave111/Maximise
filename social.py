@@ -290,6 +290,15 @@ def admin_announce():
     users = User.query.filter(User.id != current_user.id).all()
     db.session.bulk_save_objects([Notification(user_id=u.id, title=title, message=message, link='/market') for u in users])
     db.session.commit()
+    # Email the same announcement to users who have marketplace email alerts enabled.
+    try:
+        import email_notifications
+        for user in users:
+            email_notifications.queue_email(user.id, 'admin_announcement', title, message, '/market', 'Open Merco')
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Admin announcement email queue failed')
     flash(f'Announcement delivered to {len(users)} users.')
     return redirect(url_for('admin_control'))
 
