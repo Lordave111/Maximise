@@ -75,4 +75,8 @@ def safe_seller_activation():
     return _activate_seller()
 
 
+# Load queued EmailJS lifecycle notifications after all marketplace feature
+# modules have registered their models and routes.
+import email_notifications  # noqa: E402,F401
+
 application = app
