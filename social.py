@@ -107,12 +107,28 @@ def follow_seller(seller_slug):
     existing = SellerFollow.query.filter_by(buyer_id=current_user.id, seller_id=seller.id).first()
     if existing:
         db.session.delete(existing)
+        db.session.commit()
         flash(f'You unfollowed {seller.username}.')
     else:
         db.session.add(SellerFollow(buyer_id=current_user.id, seller_id=seller.id))
         db.session.add(Notification(user_id=seller.id, title='New follower', message=f'{current_user.username} is now following your store.', link=url_for('seller_page', seller_slug=seller.seller_slug)))
+        db.session.commit()
+        # Email is optional and respects the seller's email-notification setting.
+        try:
+            import email_notifications
+            email_notifications.queue_email(
+                seller.id,
+                'new_follower',
+                f'{current_user.username} followed your Merco store',
+                f'{current_user.username} is now following your store. They will receive updates when you publish new products.',
+                url_for('seller_page', seller_slug=seller.seller_slug, _external=True),
+                'Open my store',
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('New follower email queue failed')
         flash(f'You are now following {seller.username}.')
-    db.session.commit()
     return redirect(request.referrer or url_for('seller_page', seller_slug=seller_slug))
 
 
