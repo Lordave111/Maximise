@@ -23,6 +23,18 @@
   <div class="panel" style="margin-top:24px"><div class="eyebrow">EMAIL VERIFIED</div><p><i class="ri-checkbox-circle-line"></i> {{ current_user.email }} is verified.</p></div>
   {% endif %}
 
-  {% if current_user.role=='buyer' %}<hr style="border:0;border-top:1px solid var(--line);margin:30px 0"><div class="eyebrow">SELLER MODE</div><h2>Open your storefront</h2><p>Choose a public seller name and add the contact details buyers can use to call, email or message you.</p><form method="post" action="{{ url_for('activate_seller_production') }}"><label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required><div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email }}" required></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="{{ contact.phone_number }}" required></div></div><label class="label">WhatsApp for buyers</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="234..." required><button class="btn" type="submit"><i class="ri-store-2-line"></i> Become a seller</button></form>{% else %}<div class="panel" style="margin-top:28px"><div class="eyebrow">SELLER ACTIVE</div><h2>Your store is live</h2><p>Public link: <strong>/seller/{{ current_user.seller_slug }}</strong></p><div class="two-col" style="margin-top:18px"><div><small>Public email</small><strong>{{ contact.public_email }}</strong></div><div><small>Phone</small><strong>{{ contact.phone_number or 'Not set' }}</strong></div></div><a class="btn" style="margin-top:18px" href="{{ url_for('seller_page',seller_slug=current_user.seller_slug) }}">View my store <i class="ri-external-link-line"></i></a></div>{% endif %}
+  {% if current_user.role=='buyer' %}
+  <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
+  <div class="eyebrow">SELLER MODE</div><h2>Open your storefront</h2><p>Choose a public seller name and add the contact details buyers can use to call, email or message you.</p>
+  <form method="post" action="{{ url_for('settings') }}" data-merco-loading>
+    <input type="hidden" name="action" value="become_seller">
+    <label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required>
+    <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email }}" required></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="{{ contact.phone_number }}" required></div></div>
+    <label class="label">WhatsApp for buyers</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="234..." required>
+    <button class="btn" type="submit"><i class="ri-store-2-line"></i> Become a seller</button>
+  </form>
+  {% else %}
+  <div class="panel" style="margin-top:28px"><div class="eyebrow">SELLER ACTIVE</div><h2>Your store is live</h2><p>Public link: <strong>/seller/{{ current_user.seller_slug }}</strong></p><div class="two-col" style="margin-top:18px"><div><small>Public email</small><strong>{{ contact.public_email }}</strong></div><div><small>Phone</small><strong>{{ contact.phone_number or 'Not set' }}</strong></div></div><a class="btn" style="margin-top:18px" href="{{ url_for('seller_page',seller_slug=current_user.seller_slug) }}">View my store <i class="ri-external-link-line"></i></a></div>
+  {% endif %}
 </div>
 {% endblock %}
