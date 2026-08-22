@@ -9,7 +9,7 @@ import os
 
 from flask import jsonify, request
 from flask_login import current_user, login_required
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from app import app, db
 import social
@@ -103,6 +103,22 @@ def _send(subscription, notification):
 def process_push_queue(limit=10):
     if not _vapid_ready():
         return 0, 0
+
+    # Some marketplace notifications are created from a SQLAlchemy Core
+    # mapper event, so they are not present in Session.new. Reconcile only
+    # very recent records into the push queue before sending them.
+    recent_cutoff = datetime.utcnow() - timedelta(minutes=5)
+    existing_ids = select(PushJob.notification_id)
+    recent = (social.Notification.query
+              .filter(social.Notification.created_at >= recent_cutoff)
+              .filter(~social.Notification.id.in_(existing_ids))
+              .limit(100).all())
+    if recent:
+        for notification in recent:
+            if PushSubscription.query.filter_by(user_id=notification.user_id).first():
+                db.session.add(PushJob(notification_id=notification.id, user_id=notification.user_id))
+        db.session.commit()
+
     sent = failed = 0
     jobs = (PushJob.query.filter(PushJob.status == 'pending', PushJob.available_at <= datetime.utcnow())
             .order_by(PushJob.id.asc()).limit(max(1, min(int(limit), 25))).all())
