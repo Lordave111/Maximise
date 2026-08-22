@@ -16,7 +16,7 @@
   <span class="merco-offline__copy"><span class="merco-offline__title">You're offline</span><span class="merco-offline__text">Reconnect to continue using Merco.</span></span>
   <button id="mercoReconnect" class="merco-offline__retry" type="button"><i class="ri-refresh-line"></i> Reconnect</button>
 </div>
-<div id="mercoPushPermission" class="merco-push-modal" role="dialog" aria-modal="true" aria-labelledby="mercoPushTitle" aria-describedby="mercoPushDescription" hidden>
+<div id="mercoPushPermission" class="merco-push-modal" data-merco-push-user="{{ 1 if current_user.is_authenticated else 0 }}" role="dialog" aria-modal="true" aria-labelledby="mercoPushTitle" aria-describedby="mercoPushDescription" hidden>
   <section class="merco-push-card">
     <div class="merco-push-icon" aria-hidden="true"><i class="ri-notification-3-fill"></i></div>
     <div class="merco-push-kicker">MERCO ALERTS</div>
@@ -31,7 +31,7 @@
       <button id="mercoPushEnable" class="merco-push-enable" type="button"><i class="ri-notification-3-line"></i> Enable notifications</button>
       <button id="mercoPushLater" class="merco-push-later" type="button">Not now</button>
     </div>
-    <p class="merco-push-note">Your browser will ask for the final permission. Merco never receives your notification permission choice as a password or private message.</p>
+    <p class="merco-push-note">Your browser will ask for the final permission. You can change notification access later in your browser settings.</p>
   </section>
 </div>
 <header class="topbar"><a class="brand" href="{{ url_for('market') }}"><span class="brand-mark"><i class="ri-sparkling-2-fill"></i></span><span>MERCO</span></a><nav aria-label="Main navigation"><a href="{{ url_for('market') }}"><i class="ri-store-2-line"></i><span>Marketplace</span></a>{% if current_user.is_authenticated %}<a href="{{ url_for('dashboard') }}"><i class="ri-dashboard-3-line"></i><span>Dashboard</span></a><a href="{{ url_for('notifications') }}"><i class="ri-notification-3-line"></i><span>Notifications{% if unread_notifications %}<b class="nav-notification-badge">{{ unread_notifications if unread_notifications < 100 else '99+' }}</b>{% endif %}</span></a><a href="{{ url_for('settings') }}"><i class="ri-settings-4-line"></i><span>Settings</span></a><a href="{{ url_for('logout') }}"><i class="ri-logout-box-r-line"></i><span>Log out</span></a>{% else %}<a href="{{ url_for('login') }}"><i class="ri-login-box-line"></i><span>Log in</span></a><a href="{{ url_for('register') }}" class="nav-cta"><i class="ri-user-add-line"></i><span>Create account</span></a>{% endif %}</nav><button class="theme-toggle" aria-label="Toggle light mode"><i class="ri-moon-line"></i></button></header>
