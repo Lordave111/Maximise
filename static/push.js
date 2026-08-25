@@ -48,18 +48,42 @@
   }
 
   async function getConfig() {
-    const response = await fetch('/push/config', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error(`Merco notification service returned ${response.status}.`);
+    const response = await fetch('/push/config', {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
+    });
+    if (!response.ok) throw new Error(`Merco notification service returned HTTP ${response.status}.`);
     const data = await response.json();
-    if (!data.public_key) throw new Error('Phone alerts are not configured on Merco yet. The administrator needs to add the VAPID keys in Render.');
+    if (!data.public_key) throw new Error('Phone alerts are not configured on Merco. Add VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_CLAIMS_EMAIL in Render.');
+    if (data.webpush_installed === false) throw new Error('The server notification package is not installed. Redeploy Merco after installing pywebpush.');
     return data;
   }
 
   async function registerServiceWorker() {
     if (!supported) throw new Error('This browser does not support phone notifications.');
     if (registration) return registration;
-    registration = await navigator.serviceWorker.register('/static/sw.js', { scope: '/' });
+    registration = await navigator.serviceWorker.register('/static/sw.js', {
+      scope: '/',
+      updateViaCache: 'none'
+    });
+    await registration.update().catch(() => {});
     return await navigator.serviceWorker.ready;
+  }
+
+  async function sendTestPush() {
+    const response = await fetch('/push/test', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    });
+    let data = {};
+    try { data = await response.json(); } catch (_) {}
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `The phone test failed (HTTP ${response.status}).`);
+    }
+    return data;
   }
 
   async function subscribeFromPermission(permission) {
@@ -83,6 +107,7 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify(subscription.toJSON())
     });
     if (!response.ok) {
@@ -90,6 +115,10 @@
       try { const data = await response.json(); if (data.error) message = data.error; } catch (_) {}
       throw new Error(message);
     }
+
+    // Do not claim success merely because the subscription was saved. Send a
+    // real push immediately so the user can verify that phone alerts work.
+    await sendTestPush();
     return subscription;
   }
 
@@ -104,7 +133,7 @@
       if (permission !== 'granted') permission = await Notification.requestPermission();
       await subscribeFromPermission(permission);
       closePrompt();
-      status('Phone notifications are enabled on this device.', 'success');
+      status('Phone notifications are enabled and a test alert was sent to this device.', 'success');
       setButton(button, '<i class="ri-notification-3-fill"></i> Phone alerts enabled', false, true);
       const settingsButton = qs('[data-merco-push-enable]');
       if (settingsButton && settingsButton !== button) setButton(settingsButton, '<i class="ri-notification-3-fill"></i> Phone alerts enabled', false, true);
@@ -126,6 +155,7 @@
       } catch (error) {
         console.warn('[Merco Push] Existing permission could not be synced:', error);
         setButton(button, '<i class="ri-notification-3-line"></i> Enable phone alerts', false, false);
+        status(error?.message || 'Your browser allows notifications, but Merco could not connect this device.', 'error');
       }
       return;
     }
@@ -137,7 +167,7 @@
     const modal = qs('#mercoPushPermission');
     if (!modal || !supported || modal.dataset.mercoPushUser !== '1') return;
     if (Notification.permission !== 'default') return;
-    window.setTimeout(openPrompt, 500);
+    window.setTimeout(openPrompt, 700);
   }
 
   function initPush() {
@@ -167,9 +197,6 @@
     showPermissionPromptForSignedInUser();
   }
 
-  /* The base template predates the restored seller/buyer navigation. Build the
-     same navigation from a small authenticated JSON endpoint so the links are
-     available everywhere without exposing seller/admin links to other roles. */
   async function enhanceNavigation() {
     const nav = document.querySelector('.topbar nav');
     if (!nav) return;
@@ -178,7 +205,6 @@
       if (!response.ok) return;
       const data = await response.json();
       if (!data.authenticated || !Array.isArray(data.items)) return;
-
       const logout = Array.from(nav.querySelectorAll('a')).find(a => /log out/i.test(a.textContent));
       const existing = new Set(Array.from(nav.querySelectorAll('a')).map(a => a.getAttribute('href')));
       for (const item of data.items) {
