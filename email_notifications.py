@@ -39,9 +39,6 @@ with app.app_context():
 
 
 def queue_email(user_id, event_type, subject, message, action_url='', action_text='Open Merco', *, transactional=False):
-    """Queue one email. Marketplace alerts respect the user's email toggle.
-    Security/account emails pass transactional=True and are always delivered.
-    """
     user = db.session.get(User, user_id)
     if not user or not user.email:
         return None
@@ -55,7 +52,6 @@ def queue_email(user_id, event_type, subject, message, action_url='', action_tex
 
 
 def queue_email_connection(connection, user_id, event_type, subject, message, action_url='', action_text='Open Merco', *, transactional=False):
-    """Queue from SQLAlchemy mapper events without opening a second session."""
     row = connection.execute(select(User.email, User.email_notifications).where(User.id == user_id)).first()
     if not row or not row.email or (not transactional and not bool(row.email_notifications)):
         return
@@ -67,9 +63,6 @@ def queue_email_connection(connection, user_id, event_type, subject, message, ac
 
 
 def process_email_queue(limit=1):
-    """Send a small number of pending emails. EmailJS documents a 1 req/sec rate
-    limit, so the default is deliberately conservative.
-    """
     sent = failed = 0
     with app.app_context():
         jobs = (EmailJob.query.filter(EmailJob.status == 'pending', EmailJob.available_at <= datetime.utcnow())
