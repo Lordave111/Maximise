@@ -1,9 +1,4 @@
-/* Merco phone notifications.
-   A signed-in user who has not chosen a notification permission gets a branded
-   Merco prompt automatically. The browser's native permission dialog is
-   requested only from the user's tap on "Enable notifications" because modern
-   browsers require a user gesture for notification permission requests.
-*/
+/* Merco phone notifications + role-aware navigation. */
 (function () {
   'use strict';
 
@@ -54,7 +49,7 @@
 
   async function getConfig() {
     const response = await fetch('/push/config', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error('Merco notification service is unavailable right now.');
+    if (!response.ok) throw new Error(`Merco notification service returned ${response.status}.`);
     const data = await response.json();
     if (!data.public_key) throw new Error('Phone alerts are not configured on Merco yet. The administrator needs to add the VAPID keys in Render.');
     return data;
@@ -78,7 +73,10 @@
     const reg = await registerServiceWorker();
     let subscription = await reg.pushManager.getSubscription();
     if (!subscription) {
-      subscription = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(config.public_key) });
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(config.public_key)
+      });
     }
 
     const response = await fetch('/push/subscribe', {
@@ -88,7 +86,7 @@
       body: JSON.stringify(subscription.toJSON())
     });
     if (!response.ok) {
-      let message = 'Merco could not save this device for notifications.';
+      let message = `Merco could not save this device (HTTP ${response.status}).`;
       try { const data = await response.json(); if (data.error) message = data.error; } catch (_) {}
       throw new Error(message);
     }
@@ -102,7 +100,6 @@
     status('', 'info');
 
     try {
-      // Must stay in the click path: browsers require a user gesture for this prompt.
       let permission = Notification.permission;
       if (permission !== 'granted') permission = await Notification.requestPermission();
       await subscribeFromPermission(permission);
@@ -140,12 +137,10 @@
     const modal = qs('#mercoPushPermission');
     if (!modal || !supported || modal.dataset.mercoPushUser !== '1') return;
     if (Notification.permission !== 'default') return;
-    // Show the branded explanation automatically after login/page load.
-    // The native browser prompt still waits for the user's tap.
     window.setTimeout(openPrompt, 500);
   }
 
-  function init() {
+  function initPush() {
     const modal = qs('#mercoPushPermission');
     const enableButton = qs('#mercoPushEnable');
     const settingsButton = qs('[data-merco-push-enable]');
@@ -157,9 +152,7 @@
       return;
     }
 
-    // No service-worker registration or network calls before the user asks.
     syncGrantedState(settingsButton);
-
     if (enableButton) enableButton.addEventListener('click', (event) => { event.preventDefault(); enable(enableButton); });
     if (settingsButton) settingsButton.addEventListener('click', (event) => {
       event.preventDefault();
@@ -171,8 +164,34 @@
       enable(settingsButton);
     });
     if (laterButton) laterButton.addEventListener('click', (event) => { event.preventDefault(); closePrompt(); });
-
     showPermissionPromptForSignedInUser();
+  }
+
+  /* The base template predates the restored seller/buyer navigation. Build the
+     same navigation from a small authenticated JSON endpoint so the links are
+     available everywhere without exposing seller/admin links to other roles. */
+  async function enhanceNavigation() {
+    const nav = document.querySelector('.topbar nav');
+    if (!nav) return;
+    try {
+      const response = await fetch('/api/navigation', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.authenticated || !Array.isArray(data.items)) return;
+
+      const logout = Array.from(nav.querySelectorAll('a')).find(a => /log out/i.test(a.textContent));
+      const existing = new Set(Array.from(nav.querySelectorAll('a')).map(a => a.getAttribute('href')));
+      for (const item of data.items) {
+        if (existing.has(item.url)) continue;
+        const link = document.createElement('a');
+        link.href = item.url;
+        link.dataset.mercoNav = 'true';
+        link.innerHTML = `<i class="${item.icon}"></i><span>${item.label}</span>`;
+        if (logout) nav.insertBefore(link, logout); else nav.appendChild(link);
+      }
+    } catch (error) {
+      console.debug('[Merco Navigation]', error);
+    }
   }
 
   window.MercoPush = {
@@ -180,6 +199,11 @@
     register: registerServiceWorker,
     openPermissionPrompt: openPrompt
   };
+
+  function init() {
+    initPush();
+    enhanceNavigation();
+  }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
