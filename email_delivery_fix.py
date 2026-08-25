@@ -16,10 +16,7 @@ def send_merco_email(user, subject, message, action_url='', action_text='Open Me
     template = (template_id or os.environ.get('EMAILJS_TEMPLATE_ID', '')).strip()
 
     if not service_id or not public_key or not template:
-        app.logger.error(
-            'EmailJS configuration incomplete: service=%s public=%s template=%s',
-            bool(service_id), bool(public_key), bool(template)
-        )
+        app.logger.error('EmailJS configuration incomplete: service=%s public=%s template=%s', bool(service_id), bool(public_key), bool(template))
         return False
 
     payload = {
@@ -89,3 +86,10 @@ def navigation_api():
 
 
 app.send_merco_email = send_merco_email
+
+# The existing push module registers the database models/routes first; this
+# override replaces only its subscribe implementation with an immediate test.
+try:
+    import push_delivery_fix  # noqa: E402,F401
+except Exception:
+    app.logger.exception('Push delivery override could not be loaded')
