@@ -14,6 +14,7 @@ from sqlalchemy.orm.attributes import get_history
 from app import app, db, User, Product
 import bootstrap
 import social
+import email_delivery_fix  # noqa: E402,F401
 
 
 class EmailJob(db.Model):
@@ -79,8 +80,6 @@ def process_email_queue(limit=1):
                 job.status = 'cancelled'
                 db.session.commit()
                 continue
-            # Marketplace alerts can be switched off. Transactional account
-            # messages remain deliverable.
             if job.event_type not in {'verification', 'welcome', 'seller_activated', 'payment_success'} and not bool(user.email_notifications):
                 job.status = 'cancelled'
                 db.session.commit()
@@ -159,9 +158,6 @@ def queue_account_lifecycle_emails(mapper, connection, target):
 
 @app.before_request
 def expire_and_queue_listing_alerts():
-    # sitefix intentionally removes the older bootstrap before_request handler,
-    # so the production lifecycle is handled here. This keeps expiry + email
-    # alerts active on normal traffic without adding a second web process.
     try:
         before = {n.id for n in social.Notification.query.filter_by(title='Listing expired').all()}
         seller_features = __import__('seller_features')
@@ -179,7 +175,6 @@ def expire_and_queue_listing_alerts():
 
 @app.post('/tasks/process-emails')
 def process_email_task():
-    """Optional Render Cron endpoint. Set CRON_SECRET and call this every minute."""
     expected = os.environ.get('CRON_SECRET', '').strip()
     supplied = request.headers.get('X-Cron-Secret', '') or request.args.get('secret', '')
     if not expected or supplied != expected:
