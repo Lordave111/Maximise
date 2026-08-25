@@ -5,6 +5,7 @@ import requests
 from flask import jsonify
 from flask_login import current_user
 
+import app as app_module
 from app import app
 
 
@@ -85,10 +86,10 @@ def navigation_api():
     return jsonify({'authenticated': True, 'role': current_user.role, 'items': common[:2] + role_items + common[2:]})
 
 
-app.send_merco_email = send_merco_email
+# Replace the module-level function used by verification and queued email jobs.
+app_module.send_merco_email = send_merco_email
 
-# The existing push module registers the database models/routes first; this
-# override replaces only its subscribe implementation with an immediate test.
+# Load the push module and immediately override its subscription endpoint.
 try:
     import push_delivery_fix  # noqa: E402,F401
 except Exception:
