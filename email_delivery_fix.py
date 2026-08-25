@@ -1,13 +1,9 @@
-"""Reliable EmailJS delivery adapter for Merco.
-
-The original implementation used urllib and logged every HTTP/network problem
-as the same generic "delivery failed" message. This adapter keeps the existing
-EmailJS REST contract, uses the already-installed requests package, and logs
-EmailJS's actual response body so configuration/provider errors are visible in
-Render logs.
-"""
+"""Reliable EmailJS delivery adapter and navigation API for Merco."""
 import os
 import requests
+
+from flask import jsonify
+from flask_login import current_user
 
 from app import app
 
@@ -57,16 +53,39 @@ def send_merco_email(user, subject, message, action_url='', action_text='Open Me
         if response.ok:
             app.logger.info('EmailJS delivered email to %s (HTTP %s)', user.email, response.status_code)
             return True
-        app.logger.error(
-            'EmailJS rejected email to %s: HTTP %s: %s',
-            user.email, response.status_code, body
-        )
+        app.logger.error('EmailJS rejected email to %s: HTTP %s: %s', user.email, response.status_code, body)
         return False
     except requests.RequestException as exc:
         app.logger.error('EmailJS network error for %s: %s', user.email, exc)
         return False
 
 
-# The rest of the application already calls app.send_merco_email indirectly.
-# Replace only that delivery function; no routes or templates are changed.
+@app.get('/api/navigation')
+def navigation_api():
+    if not current_user.is_authenticated:
+        return jsonify({'authenticated': False, 'role': None, 'items': []})
+    common = [
+        {'label': 'Marketplace', 'icon': 'ri-store-2-line', 'url': '/market'},
+        {'label': 'Dashboard', 'icon': 'ri-dashboard-3-line', 'url': '/dashboard'},
+        {'label': 'Notifications', 'icon': 'ri-notification-3-line', 'url': '/notifications'},
+        {'label': 'Settings', 'icon': 'ri-settings-4-line', 'url': '/settings'},
+    ]
+    if current_user.role == 'buyer':
+        role_items = [
+            {'label': 'For You', 'icon': 'ri-sparkling-line', 'url': '/for-you'},
+            {'label': 'Following', 'icon': 'ri-user-heart-line', 'url': '/following'},
+        ]
+    elif current_user.role == 'seller':
+        role_items = [
+            {'label': 'Upload Product', 'icon': 'ri-add-box-line', 'url': '/seller/add'},
+            {'label': 'Followers', 'icon': 'ri-group-line', 'url': '/seller/followers'},
+            {'label': 'Analytics', 'icon': 'ri-bar-chart-box-line', 'url': '/seller/insights'},
+        ]
+    else:
+        role_items = [
+            {'label': 'Admin Control', 'icon': 'ri-shield-star-line', 'url': '/admin/control'},
+        ]
+    return jsonify({'authenticated': True, 'role': current_user.role, 'items': common[:2] + role_items + common[2:]})
+
+
 app.send_merco_email = send_merco_email
