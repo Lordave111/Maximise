@@ -1,10 +1,12 @@
-/* Merco PWA phone notifications. A branded permission sheet is shown to authenticated
-   users when notification permission is still undecided. The native browser prompt is
-   triggered only from the user's Enable button click. */
+/* Merco phone notifications.
+   Shows a branded permission sheet to every signed-in buyer/seller whose
+   browser has not made a notification decision yet. The native browser
+   permission dialog is requested only after the user taps Enable.
+*/
 (function () {
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   let registration = null;
-  const promptSeenKey = 'merco-push-prompt-seen';
+  const promptSeenKey = 'merco-push-prompt-seen-v2';
 
   function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -13,9 +15,17 @@
     return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
   }
 
+  function status(message, kind = 'info') {
+    const box = document.getElementById('mercoPushStatus');
+    if (!box) return;
+    box.hidden = !message;
+    box.className = `merco-push-status is-${kind}`;
+    box.textContent = message || '';
+  }
+
   async function getConfig() {
     const response = await fetch('/push/config', { credentials: 'same-origin', cache: 'no-store' });
-    if (!response.ok) throw new Error('Push configuration unavailable');
+    if (!response.ok) throw new Error('Merco notification service is unavailable.');
     return response.json();
   }
 
@@ -28,10 +38,18 @@
 
   async function subscribe(forcePermission) {
     if (!supported) throw new Error('This browser does not support phone notifications.');
-    const config = await getConfig();
-    if (!config.enabled || !config.public_key) throw new Error('Phone notifications are not configured yet.');
     const permission = forcePermission ? await Notification.requestPermission() : Notification.permission;
-    if (permission !== 'granted') throw new Error(permission === 'denied' ? 'Notifications are blocked. You can enable them in your browser site settings.' : 'Notification permission was not granted.');
+    if (permission !== 'granted') {
+      throw new Error(permission === 'denied'
+        ? 'Notifications are blocked for Merco. Open your browser site settings and allow notifications.'
+        : 'Notification permission was not granted.');
+    }
+
+    const config = await getConfig();
+    if (!config.enabled || !config.public_key) {
+      throw new Error('Your phone permission is enabled, but Merco phone alerts are not connected yet. The administrator needs to add the VAPID keys in Render.');
+    }
+
     const reg = registration || await registerServiceWorker();
     let subscription = await reg.pushManager.getSubscription();
     if (!subscription) {
@@ -40,13 +58,18 @@
         applicationServerKey: urlBase64ToUint8Array(config.public_key),
       });
     }
+
     const response = await fetch('/push/subscribe', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription.toJSON()),
     });
-    if (!response.ok) throw new Error('Could not save the notification subscription.');
+    if (!response.ok) {
+      let message = 'Could not save this phone for notifications.';
+      try { message = (await response.json()).error || message; } catch (_) {}
+      throw new Error(message);
+    }
     return subscription;
   }
 
@@ -72,84 +95,72 @@
       return;
     }
     try {
-      const config = await getConfig();
-      if (!config.enabled) {
-        button.disabled = true;
-        button.innerHTML = '<i class="ri-notification-off-line"></i> Phone alerts not configured';
-        return;
-      }
       if (Notification.permission === 'granted') {
-        await subscribe(false);
-        button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
-        button.classList.add('is-enabled');
+        const config = await getConfig();
+        if (config.enabled && config.public_key) {
+          await subscribe(false);
+          button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
+          button.classList.add('is-enabled');
+        } else {
+          button.innerHTML = '<i class="ri-notification-3-line"></i> Finish phone alert setup';
+        }
       } else if (Notification.permission === 'denied') {
-        button.innerHTML = '<i class="ri-notification-off-line"></i> Notifications blocked';
+        button.innerHTML = '<i class="ri-notification-off-line"></i> Allow phone notifications';
+      } else {
+        button.innerHTML = '<i class="ri-notification-3-line"></i> Enable phone alerts';
       }
-    } catch (_) {}
+      button.disabled = false;
+    } catch (_) {
+      button.disabled = false;
+      button.innerHTML = '<i class="ri-notification-3-line"></i> Enable phone alerts';
+    }
   }
 
-  async function maybeShowPermissionPrompt() {
+  function maybeShowPermissionPrompt() {
     if (!supported || Notification.permission !== 'default') return;
     const userFlag = document.querySelector('[data-merco-push-user]')?.dataset.mercoPushUser;
     if (userFlag !== '1') return;
     if (sessionStorage.getItem(promptSeenKey) === '1') return;
+    sessionStorage.setItem(promptSeenKey, '1');
+    window.setTimeout(openPrompt, 700);
+  }
+
+  async function handleEnable(button) {
+    if (!button) return;
+    button.disabled = true;
+    button.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Connecting...';
+    status('', 'info');
     try {
-      const config = await getConfig();
-      if (!config.enabled || !config.public_key) return;
-      sessionStorage.setItem(promptSeenKey, '1');
-      window.setTimeout(openPrompt, 650);
-    } catch (_) {}
+      await subscribe(true);
+      closePrompt();
+      status('Phone notifications are enabled on this device.', 'success');
+      button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
+      button.classList.add('is-enabled');
+      button.disabled = false;
+      const settingsButton = document.querySelector('[data-merco-push-enable]');
+      if (settingsButton) {
+        settingsButton.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
+        settingsButton.classList.add('is-enabled');
+        settingsButton.disabled = false;
+      }
+    } catch (error) {
+      button.innerHTML = '<i class="ri-notification-3-line"></i> Enable notifications';
+      button.disabled = false;
+      status(error?.message || 'We could not enable phone notifications.', 'error');
+    }
   }
 
   async function init() {
     if (!supported) return;
-    try {
-      await registerServiceWorker();
-      const button = document.querySelector('[data-merco-push-enable]');
-      await refreshButton(button);
-
-      const enable = document.getElementById('mercoPushEnable');
-      const later = document.getElementById('mercoPushLater');
-      if (later) later.addEventListener('click', closePrompt);
-
-      if (enable) {
-        enable.addEventListener('click', async () => {
-          enable.disabled = true;
-          enable.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Connecting...';
-          try {
-            await subscribe(true);
-            closePrompt();
-            if (button) {
-              button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
-              button.classList.add('is-enabled');
-              button.disabled = false;
-            }
-          } catch (error) {
-            enable.innerHTML = '<i class="ri-notification-3-line"></i> Enable notifications';
-            enable.disabled = false;
-            if (error?.message) alert(error.message);
-          }
-        });
-      }
-
-      if (button) {
-        button.addEventListener('click', async () => {
-          button.disabled = true;
-          button.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Enabling...';
-          try {
-            await subscribe(true);
-            button.innerHTML = '<i class="ri-notification-3-fill"></i> Phone alerts enabled';
-            button.classList.add('is-enabled');
-          } catch (error) {
-            button.innerHTML = '<i class="ri-notification-3-line"></i> Enable phone alerts';
-            button.disabled = false;
-            if (error?.message) alert(error.message);
-          }
-        });
-      }
-
-      await maybeShowPermissionPrompt();
-    } catch (_) {}
+    try { await registerServiceWorker(); } catch (_) {}
+    const button = document.querySelector('[data-merco-push-enable]');
+    await refreshButton(button);
+    const enable = document.getElementById('mercoPushEnable');
+    const later = document.getElementById('mercoPushLater');
+    if (later) later.addEventListener('click', closePrompt);
+    if (enable) enable.addEventListener('click', () => handleEnable(enable));
+    if (button) button.addEventListener('click', () => handleEnable(button));
+    maybeShowPermissionPrompt();
   }
 
   window.MercoPush = { enable: () => subscribe(true), register: registerServiceWorker, openPermissionPrompt: openPrompt };
