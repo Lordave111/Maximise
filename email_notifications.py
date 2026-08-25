@@ -184,3 +184,8 @@ def process_one_email_after_request(response):
         except Exception:
             app.logger.exception('Email queue processing failed')
     return response
+
+
+# Imported by merco_runtime already, so the immediate push diagnostic route is
+# registered after the main push module has created its models/helpers.
+import push_test  # noqa: E402,F401
