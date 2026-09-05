@@ -1,6 +1,6 @@
 """Idempotent demo marketplace seed data for Merco.
 
-Set MERCO_SEED_DEMO_DATA=1 to create 50 demo sellers and 50 demo products.
+Set MERCO_SEED_DEMO_DATA=1 to create 50 demo sellers and 3 products per seller.
 Seller account emails use Gmail plus-addresses so the public contact email can
 remain the requested nwahiridaviduche@gmail.com while the User.email column
 stays unique.
@@ -78,7 +78,7 @@ def seed_demo_data():
             return 0
 
         created = 0
-        for index, (product_name, category_name, price) in enumerate(PRODUCTS, start=1):
+        for index in range(1, 51):
             seller_name = f'Merco Demo Store {index:02d}'
             account_email = f'nwahiridaviduche+seller{index:02d}@gmail.com'
             slug = f'merco-demo-store-{index:02d}'
@@ -124,14 +124,31 @@ def seed_demo_data():
                 contact.phone_number = DEMO_PHONE
                 contact.free_listing_used = True
 
-            existing = Product.query.filter_by(seller_id=seller.id, name=product_name).first()
-            if not existing:
+            # Give every demo seller three distinct listings. The catalog is
+            # rotated so neighboring sellers do not all get the same products.
+            for slot in range(3):
+                catalog_index = (index - 1 + slot * 17) % len(PRODUCTS)
+                base_name, category_name, price = PRODUCTS[catalog_index]
+                product_name = f'{base_name} — {seller_name}'
+                existing = Product.query.filter_by(
+                    seller_id=seller.id,
+                    name=product_name,
+                ).first()
+                if existing:
+                    continue
+
                 category = categories.get(category_name) or categories.get('Other')
                 db.session.add(Product(
                     name=product_name,
                     price=float(Decimal(str(price))),
-                    description=f'Premium demo listing from {seller_name}. Contact the seller directly through the marketplace for availability and purchase details.',
-                    cover_image=f'https://picsum.photos/seed/merco-product-{index}/900/650',
+                    description=(
+                        f'Premium demo listing from {seller_name}. '
+                        'Contact the seller directly through the marketplace '
+                        'for availability and purchase details.'
+                    ),
+                    cover_image=(
+                        f'https://picsum.photos/seed/merco-seller-{index}-product-{slot}/900/650'
+                    ),
                     screenshots='',
                     is_sold_out=False,
                     seller_id=seller.id,
@@ -144,4 +161,7 @@ def seed_demo_data():
 if __name__ == '__main__':
     with app.app_context():
         count = seed_demo_data()
-        print(f'Merco demo seed complete. Created {count} sellers; demo data is idempotent.')
+        print(
+            f'Merco demo seed complete. Created {count} sellers; '
+            'three distinct demo products are assigned to every seller.'
+        )
