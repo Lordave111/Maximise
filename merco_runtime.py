@@ -1,15 +1,11 @@
-"""Production wrapper for Merco.
-
-Loads the hardened application and provides defensive production overrides for
-Seller Mode and Settings so failures never turn the page into a blank/500
-response.
-"""
+"""Production wrapper for Merco."""
 
 import os
 from datetime import datetime, timedelta
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, url_for, jsonify
 from flask_login import current_user, login_required
+from sqlalchemy import text
 
 from sitefix import app
 import app as app_module
@@ -30,14 +26,8 @@ def _activate_seller():
         public_email = (request.form.get('contact_email') or current_user.email).strip()[:160]
         phone = (request.form.get('phone_number') or '').strip()[:40]
         whatsapp = (request.form.get('whatsapp') or '').strip()[:30]
-        if not seller_name:
-            raise ValueError('Enter a seller or store name.')
-        if not public_email or '@' not in public_email:
-            raise ValueError('Enter a valid public email.')
-        if not phone:
-            raise ValueError('Add a phone number so buyers can call you.')
-        if not whatsapp:
-            raise ValueError('Add a WhatsApp number so buyers can contact you.')
+        if not seller_name or not public_email or '@' not in public_email or not phone or not whatsapp:
+            raise ValueError('Seller name, public email, phone and WhatsApp are required.')
         bootstrap.save_contact(current_user, public_email, phone, require_phone=True)
         current_user.role = 'seller'
         current_user.username = seller_name
@@ -58,7 +48,6 @@ def _activate_seller():
 
 
 def _production_settings():
-    """Stable Settings view with the seller contact object always available."""
     if request.method == 'POST':
         action = request.form.get('action', '').strip()
         if action == 'preferences':
@@ -110,24 +99,15 @@ def activate_seller_production():
 
 @app.before_request
 def safe_seller_activation():
-    if request.path != '/settings' or request.method != 'POST':
-        return None
-    if request.form.get('action') != 'become_seller':
-        return None
-    return _activate_seller()
+    if request.path == '/settings' and request.method == 'POST' and request.form.get('action') == 'become_seller':
+        return _activate_seller()
+    return None
 
 
-# Load email-only lifecycle features after the marketplace feature modules.
 import email_notifications  # noqa: E402,F401
 
 
 def _ensure_demo_listings_live():
-    """Make every seeded demo product permanently live.
-
-    Demo inventory is fixture data, not paid inventory. It must never expire or
-    become sold out, and it must have a ListingPlacement so every marketplace
-    layer sees it as published.
-    """
     now = datetime.utcnow()
     horizon = now + timedelta(days=3650)
     repaired = 0
@@ -138,44 +118,30 @@ def _ensure_demo_listings_live():
                 app_module.User.seller_slug.like('merco-demo-store-%'),
             ).all()
             for seller in demo_sellers:
-                products = app_module.Product.query.filter_by(seller_id=seller.id).all()
-                for product in products:
-                    if product.is_sold_out:
-                        product.is_sold_out = False
-                        repaired += 1
+                for product in app_module.Product.query.filter_by(seller_id=seller.id).all():
+                    product.is_sold_out = False
                     placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
                     if not placement:
                         placement = bootstrap.ListingPlacement(
-                            product_id=product.id,
-                            seller_id=seller.id,
-                            duration_hours=87600,
-                            fee_percent=0,
-                            amount_kobo=0,
-                            is_free=True,
-                            starts_at=now,
-                            expires_at=horizon,
+                            product_id=product.id, seller_id=seller.id, duration_hours=87600,
+                            fee_percent=0, amount_kobo=0, is_free=True,
+                            starts_at=now, expires_at=horizon,
                         )
                         app_module.db.session.add(placement)
                         repaired += 1
                     else:
                         changed = False
                         if placement.seller_id != seller.id:
-                            placement.seller_id = seller.id
-                            changed = True
+                            placement.seller_id = seller.id; changed = True
                         if placement.is_free is not True:
-                            placement.is_free = True
-                            changed = True
+                            placement.is_free = True; changed = True
                         if placement.fee_percent != 0:
-                            placement.fee_percent = 0
-                            changed = True
+                            placement.fee_percent = 0; changed = True
                         if placement.amount_kobo != 0:
-                            placement.amount_kobo = 0
-                            changed = True
+                            placement.amount_kobo = 0; changed = True
                         if not placement.expires_at or placement.expires_at <= now:
-                            placement.starts_at = now
-                            placement.expires_at = horizon
-                            placement.duration_hours = 87600
-                            changed = True
+                            placement.starts_at = now; placement.expires_at = horizon
+                            placement.duration_hours = 87600; changed = True
                         if changed:
                             repaired += 1
             if repaired:
@@ -187,53 +153,79 @@ def _ensure_demo_listings_live():
 
 
 def _seed_and_repair_demo_data():
-    """Ensure demo accounts and their inventory exist before relevant requests.
-
-    The entire operation is explicitly wrapped in an application context. This
-    is important because this function is also called during Gunicorn startup,
-    where there is no active request context yet.
-    """
+    """Create/repair demo data and return non-sensitive counts for diagnostics."""
     try:
         with app.app_context():
+            # Make schema creation/migrations deterministic before seeding.
+            app_module.initialize_database()
             import demo_seed
             created = demo_seed.seed_demo_data()
             repaired = _ensure_demo_listings_live()
-            if created or repaired:
-                app.logger.info(
-                    'Demo catalog guard created %s sellers and repaired %s records.',
-                    created,
-                    repaired,
-                )
-    except Exception:
-        # Roll back only while the Flask application context is still active.
-        # The previous implementation attempted db.session.rollback() after
-        # leaving the context, which produced the Render startup error:
-        # "Working outside of application context."
-        try:
-            with app.app_context():
-                app_module.db.session.rollback()
-        except Exception:
-            pass
+            demo_sellers = app_module.User.query.filter(
+                app_module.User.role == 'seller',
+                app_module.User.seller_slug.like('merco-demo-store-%'),
+            ).count()
+            demo_products = app_module.Product.query.join(
+                app_module.User, app_module.Product.seller_id == app_module.User.id
+            ).filter(
+                app_module.User.role == 'seller',
+                app_module.User.seller_slug.like('merco-demo-store-%'),
+            ).count()
+            live_products = app_module.Product.query.join(
+                app_module.User, app_module.Product.seller_id == app_module.User.id
+            ).filter(
+                app_module.User.role == 'seller',
+                app_module.User.seller_slug.like('merco-demo-store-%'),
+                app_module.Product.is_sold_out.is_(False),
+            ).count()
+            status = {
+                'sellers': demo_sellers, 'products': demo_products,
+                'live_products': live_products, 'created': created,
+                'repaired': repaired,
+            }
+            app.logger.info('DEMO_SEED_STATUS %s', status)
+            return status
+    except Exception as exc:
         app.logger.exception('Demo account/catalog guard failed.')
+        return {'sellers': 0, 'products': 0, 'live_products': 0, 'created': 0, 'repaired': 0, 'error': str(exc)}
 
 
 def _repair_demo_market_on_request():
-    """Guarantee demo inventory and accounts exist before relevant pages."""
-    if request.path not in ('/market', '/health', '/login'):
-        return None
-    _seed_and_repair_demo_data()
+    if request.path in ('/market', '/health', '/login'):
+        _seed_and_repair_demo_data()
     return None
 
 
-# Register this AFTER the production modules so it is the final guard before
-# /market, /login, or Render's /health request reaches its view function.
 app.before_request(_repair_demo_market_on_request)
 
 
-# Seed immediately at process startup as well. This is intentionally not gated
-# by MERCO_SEED_DEMO_DATA: these demo seller accounts are part of the production
-# demo marketplace and must exist even when an existing Render service has not
-# synchronized that Blueprint variable.
+def _demo_health():
+    try:
+        db = app_module.db
+        db.session.execute(text('SELECT 1'))
+        status = _seed_and_repair_demo_data()
+        response = {
+            'status': 'ok' if 'error' not in status else 'degraded',
+            'service': 'merco',
+            'database': 'ok',
+            'demo_sellers': status.get('sellers', 0),
+            'demo_products': status.get('products', 0),
+            'demo_live_products': status.get('live_products', 0),
+            'demo_seed_error': bool(status.get('error')),
+        }
+        if status.get('error'):
+            response['demo_seed_error_type'] = status['error'].__class__.__name__
+        return jsonify(response), 200
+    except Exception:
+        app_module.db.session.rollback()
+        return jsonify({'status': 'degraded', 'service': 'merco', 'database': 'unavailable'}), 503
+
+
+app.view_functions['health'] = _demo_health
+
+
+# Seed during startup as well as on the relevant public requests. This makes
+# the production fixture independent of Render Blueprint variable syncing.
 _seed_and_repair_demo_data()
 
 application = app
