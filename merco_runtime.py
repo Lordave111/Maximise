@@ -1,6 +1,7 @@
 """Production wrapper for Merco."""
 
 import time
+import threading
 from datetime import datetime, timedelta
 
 from flask import flash, redirect, render_template, request, url_for, jsonify
@@ -109,37 +110,7 @@ import email_notifications  # noqa: E402,F401
 
 _DEMO_SEED_READY = False
 _DEMO_SEED_READY_AT = 0.0
-_DEMO_LOCK_NAME = 'merco_demo_catalog_seed_v1'
-
-
-def _acquire_demo_seed_lock():
-    """Serialize demo seeding across Gunicorn workers/processes."""
-    dialect = app_module.db.engine.dialect.name
-    if dialect == 'mysql':
-        value = app_module.db.session.execute(
-            text('SELECT GET_LOCK(:lock_name, 90)'),
-            {'lock_name': _DEMO_LOCK_NAME},
-        ).scalar()
-        return value == 1, 'mysql'
-    if dialect == 'postgresql':
-        app_module.db.session.execute(text('SELECT pg_advisory_lock(284731)'))
-        return True, 'postgresql'
-    return True, 'none'
-
-
-def _release_demo_seed_lock(lock_kind):
-    try:
-        if lock_kind == 'mysql':
-            app_module.db.session.execute(
-                text('SELECT RELEASE_LOCK(:lock_name)'),
-                {'lock_name': _DEMO_LOCK_NAME},
-            )
-        elif lock_kind == 'postgresql':
-            app_module.db.session.execute(text('SELECT pg_advisory_unlock(284731)'))
-        app_module.db.session.commit()
-    except Exception:
-        app.logger.exception('Could not release demo seed lock.')
-        app_module.db.session.rollback()
+_DEMO_SEED_LOCK = threading.Lock()
 
 
 def _ensure_demo_listings_live():
@@ -189,27 +160,22 @@ def _ensure_demo_listings_live():
 
 
 def _seed_and_repair_demo_data():
-    """Create/repair demo data with a DB advisory lock and cached success."""
+    """Create/repair demo data without blocking application startup.
+
+    A process-local lock is sufficient for the deployed Render configuration
+    (one Gunicorn worker with multiple request threads) and avoids MySQL
+    advisory locks that can block the whole web process behind a gateway.
+    """
     global _DEMO_SEED_READY, _DEMO_SEED_READY_AT
 
     if _DEMO_SEED_READY and time.time() - _DEMO_SEED_READY_AT < 300:
         return {'sellers': 50, 'products': 150, 'live_products': 150, 'created': 0, 'repaired': 0, 'cached': True}
 
-    lock_kind = None
-    try:
-        with app.app_context():
-            lock_acquired, lock_kind = _acquire_demo_seed_lock()
-            if not lock_acquired:
-                app_module.db.session.rollback()
-                return {
-                    'sellers': 0, 'products': 0, 'live_products': 0,
-                    'created': 0, 'repaired': 0,
-                    'error': 'Could not acquire the demo catalog database lock.',
-                }
-            try:
-                # Run schema setup only after the lock is held, preventing two
-                # workers from altering/creating the same tables concurrently.
-                app_module.initialize_database()
+    with _DEMO_SEED_LOCK:
+        if _DEMO_SEED_READY and time.time() - _DEMO_SEED_READY_AT < 300:
+            return {'sellers': 50, 'products': 150, 'live_products': 150, 'created': 0, 'repaired': 0, 'cached': True}
+        try:
+            with app.app_context():
                 import demo_seed
                 created = demo_seed.seed_demo_data()
                 repaired = _ensure_demo_listings_live()
@@ -235,23 +201,20 @@ def _seed_and_repair_demo_data():
                     'live_products': live_products, 'created': created,
                     'repaired': repaired,
                 }
-                if demo_sellers >= 50 and demo_products >= 150 and live_products >= 150:
-                    _DEMO_SEED_READY = True
-                    _DEMO_SEED_READY_AT = time.time()
+                _DEMO_SEED_READY = demo_sellers >= 50 and demo_products >= 150
+                _DEMO_SEED_READY_AT = time.time() if _DEMO_SEED_READY else 0.0
                 app.logger.info('DEMO_SEED_STATUS %s', status)
                 return status
-            finally:
-                _release_demo_seed_lock(lock_kind)
-    except Exception as exc:
-        app.logger.exception('Demo account/catalog guard failed.')
-        try:
-            app_module.db.session.rollback()
-        except Exception:
-            pass
-        return {
-            'sellers': 0, 'products': 0, 'live_products': 0,
-            'created': 0, 'repaired': 0, 'error': str(exc),
-        }
+        except Exception as exc:
+            app.logger.exception('Demo account/catalog guard failed.')
+            try:
+                app_module.db.session.rollback()
+            except Exception:
+                pass
+            return {
+                'sellers': 0, 'products': 0, 'live_products': 0,
+                'created': 0, 'repaired': 0, 'error': str(exc),
+            }
 
 
 def _repair_demo_market_on_request():
@@ -279,18 +242,20 @@ def _demo_health():
         }
         if status.get('error'):
             response['demo_seed_error_type'] = status['error'].__class__.__name__
-            response['demo_seed_error_message'] = str(status['error'])[:180]
         return jsonify(response), 200
     except Exception:
-        app_module.db.session.rollback()
+        try:
+            app_module.db.session.rollback()
+        except Exception:
+            pass
         return jsonify({'status': 'degraded', 'service': 'merco', 'database': 'unavailable'}), 503
 
 
 app.view_functions['health'] = _demo_health
 
 
-# Seed once during startup; the advisory lock prevents concurrent workers from
-# fighting over the same MySQL rows. Relevant requests can repair a reset DB.
-_seed_and_repair_demo_data()
+# Do NOT seed during module import/startup. A slow database seed must never
+# prevent Gunicorn from binding its port and serving the main application.
+# Demo data is seeded lazily on /login, /market, or /health instead.
 
 application = app
