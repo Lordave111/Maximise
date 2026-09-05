@@ -87,7 +87,10 @@ def protect_marketplace_deletes(session, flush_context, instances):
     contact_model = bootstrap.SellerContact
     social_module = __import__('social')
     follow_model = social_module.SellerFollow
-    notification_model = social_module.Notification
+    # Notification was removed when Merco moved to email-only notifications.
+    # Do not dereference a class that no longer exists: this listener also runs
+    # during normal INSERT flushes, including demo-data seeding.
+    notification_model = getattr(social_module, 'Notification', None)
 
     deleted_products = [obj for obj in session.deleted if isinstance(obj, Product)]
     for product in deleted_products:
@@ -98,7 +101,8 @@ def protect_marketplace_deletes(session, flush_context, instances):
     deleted_users = [obj for obj in session.deleted if isinstance(obj, user_model)]
     for user in deleted_users:
         session.query(follow_model).filter((follow_model.buyer_id == user.id) | (follow_model.seller_id == user.id)).delete(synchronize_session=False)
-        session.query(notification_model).filter_by(user_id=user.id).delete(synchronize_session=False)
+        if notification_model is not None:
+            session.query(notification_model).filter_by(user_id=user.id).delete(synchronize_session=False)
         session.query(contact_model).filter_by(seller_id=user.id).delete(synchronize_session=False)
 
 
@@ -215,9 +219,6 @@ def seller_insights_production():
 
 @app.after_request
 def seller_checkout_feedback(response):
-    # The Paystack callback already redirects to Seller Dashboard. Add a
-    # specific confirmation with the product name and live duration so the
-    # seller immediately knows what happened after checkout.
     if request.path == '/payments/paystack/callback' and response.status_code in (301, 302, 303, 307, 308) and current_user.is_authenticated:
         reference = (request.args.get('reference') or request.args.get('trxref') or '').strip()
         if reference:
