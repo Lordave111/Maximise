@@ -6,6 +6,7 @@ response.
 """
 
 import os
+from datetime import datetime, timedelta
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -119,12 +120,66 @@ def safe_seller_activation():
 # Load email-only lifecycle features after the marketplace feature modules.
 import email_notifications  # noqa: E402,F401
 
+
+def _ensure_demo_listings_live():
+    """Repair demo listings so seeded products also have active placements.
+
+    Demo products are database rows, but the marketplace's live-listing layer
+    uses ListingPlacement records. Earlier demo seeding created the products
+    without placements, which made seller dashboards report zero live items.
+    This startup repair is idempotent and also refreshes expired demo placements.
+    """
+    now = datetime.utcnow()
+    horizon = now + timedelta(days=365)
+    try:
+        with app.app_context():
+            demo_sellers = app_module.User.query.filter(
+                app_module.User.role == 'seller',
+                app_module.User.seller_slug.like('merco-demo-store-%'),
+            ).all()
+            repaired = 0
+            for seller in demo_sellers:
+                for product in Product.query.filter_by(seller_id=seller.id).all():
+                    product.is_sold_out = False
+                    placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
+                    if not placement:
+                        placement = bootstrap.ListingPlacement(
+                            product_id=product.id,
+                            seller_id=seller.id,
+                            duration_hours=24,
+                            fee_percent=0,
+                            amount_kobo=0,
+                            is_free=True,
+                            starts_at=now,
+                            expires_at=horizon,
+                        )
+                        db_session = app_module.db.session
+                        db_session.add(placement)
+                        repaired += 1
+                    elif placement.expires_at <= now or placement.seller_id != seller.id:
+                        placement.seller_id = seller.id
+                        placement.duration_hours = 24
+                        placement.fee_percent = 0
+                        placement.amount_kobo = 0
+                        placement.is_free = True
+                        placement.starts_at = now
+                        placement.expires_at = horizon
+                        repaired += 1
+            if repaired:
+                app_module.db.session.commit()
+                app.logger.info('Demo listing repair complete; activated %s listings.', repaired)
+    except Exception:
+        app_module.db.session.rollback()
+        app.logger.exception('Demo listing repair failed; application startup will continue.')
+
+
 # Seed the public demo marketplace once per deploy/process start when enabled.
 if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() == '1':
     try:
         import demo_seed
         created = demo_seed.seed_demo_data()
         app.logger.info('Demo marketplace seed complete; created %s sellers.', created)
+        _ensure_demo_listings_live()
     except Exception:
         app.logger.exception('Demo marketplace seed failed; application startup will continue.')
 
