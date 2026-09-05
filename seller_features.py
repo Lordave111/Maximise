@@ -1,4 +1,4 @@
-"""Seller lifecycle features: expiry notifications and paid reactivation."""
+"""Seller lifecycle features: listing expiry and paid reactivation."""
 from datetime import datetime
 import uuid
 from decimal import Decimal
@@ -14,10 +14,9 @@ _ORIGINAL_COMPLETE = bootstrap.complete_verified_payment
 
 
 def expire_listings_with_notifications():
+    """Expire listings and send seller expiry email without creating app alerts."""
     now = datetime.utcnow()
     placements = bootstrap.ListingPlacement.query.filter(bootstrap.ListingPlacement.expires_at <= now).all()
-    if not placements:
-        return
     changed = False
     for placement in placements:
         product = Product.query.get(placement.product_id)
@@ -25,28 +24,18 @@ def expire_listings_with_notifications():
             continue
         product.is_sold_out = True
         changed = True
-        link = f'/seller/product/{product.id}/reactivate'
-        exists = social.Notification.query.filter_by(user_id=placement.seller_id, link=link).first()
-        if not exists:
-            db.session.add(social.Notification(
-                user_id=placement.seller_id,
-                title='Listing expired',
-                message=f'{product.name} has expired. Reactivate it to put it back on the market.',
-                link=link,
-                created_at=datetime.utcnow(),
-            ))
-            try:
-                import email_notifications
-                email_notifications.queue_email(
-                    placement.seller_id,
-                    'listing_expired',
-                    f'Your Merco listing expired: {product.name}',
-                    f'Your listing "{product.name}" has expired and is no longer visible in the marketplace. Reactivate it whenever you are ready.',
-                    url_for('reactivate_product', product_id=product.id, _external=True),
-                    'Reactivate listing',
-                )
-            except Exception:
-                app.logger.exception('Listing expiry email queue failed')
+        try:
+            import email_notifications
+            email_notifications.queue_email(
+                placement.seller_id,
+                'listing_expired',
+                f'Your Merco listing expired: {product.name}',
+                f'Your listing "{product.name}" has expired and is no longer visible in the marketplace. Reactivate it whenever you are ready.',
+                url_for('reactivate_product', product_id=product.id, _external=True),
+                'Reactivate listing',
+            )
+        except Exception:
+            app.logger.exception('Listing expiry email queue failed')
     if changed:
         db.session.commit()
 
