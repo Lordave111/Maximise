@@ -148,7 +148,7 @@ SUPPORTED_LANGUAGES = {
 }
 SUPPORTED_CURRENCIES = {
     'NGN': '₦ Nigerian Naira', 'USD': '$ US Dollar', 'GBP': '£ British Pound',
-    'EUR': '€ Euro', 'GHS': '₵ Ghanaian Cedi', 'KES': 'KSh Kenyan Shilling', 'ZAR': 'R South African Rand'
+    'EUR': '€ Euro', 'GHS': '₵ Ghanaian Cedi', 'KES': 'KSh Kenyan Shilling', 'ZAR': 'R South African Shilling'
 }
 
 
@@ -175,34 +175,17 @@ def _send_emailjs(to_email, subject, message, name='', action_url='', action_tex
         app.logger.error('EmailJS configuration incomplete: service=%s public=%s template=%s', bool(cfg['service_id']), bool(cfg['public_key']), bool(cfg['template_id']))
         return False
     params = {
-        'to_email': to_email,
-        'email': to_email,
-        'recipient_email': to_email,
-        'subject': subject,
-        'name': name or '',
-        'username': name or '',
-        'preheader': 'A secure update from Merco',
-        'message': message,
-        'action_url': action_url,
-        'action_text': action_text,
-        'brand_name': 'Merco',
-        'website_url': os.environ.get('MERCO_PUBLIC_URL', '').strip(),
+        'to_email': to_email, 'email': to_email, 'recipient_email': to_email,
+        'subject': subject, 'name': name or '', 'username': name or '',
+        'preheader': 'A secure update from Merco', 'message': message,
+        'action_url': action_url, 'action_text': action_text,
+        'brand_name': 'Merco', 'website_url': os.environ.get('MERCO_PUBLIC_URL', '').strip(),
     }
-    payload = {
-        'service_id': cfg['service_id'],
-        'template_id': cfg['template_id'],
-        'user_id': cfg['public_key'],
-        'template_params': params,
-    }
+    payload = {'service_id': cfg['service_id'], 'template_id': cfg['template_id'], 'user_id': cfg['public_key'], 'template_params': params}
     if cfg['private_key']:
         payload['accessToken'] = cfg['private_key']
     try:
-        response = requests.post(
-            'https://api.emailjs.com/api/v1.0/email/send',
-            json=payload,
-            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
-            timeout=20,
-        )
+        response = requests.post('https://api.emailjs.com/api/v1.0/email/send', json=payload, headers={'Accept': 'application/json', 'Content-Type': 'application/json'}, timeout=20)
         body = response.text[:1500]
         if response.ok:
             app.logger.info('EmailJS delivered email to %s using template %s (HTTP %s)', to_email, cfg['template_id'], response.status_code)
@@ -225,14 +208,7 @@ def send_merco_email(user, subject, message, action_url='', action_text='Open Me
 def send_verification_email(user):
     token = make_verification_token(user)
     link = url_for('verify_email', token=token, _external=True)
-    return send_merco_email(
-        user,
-        'Verify your Merco email',
-        f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.',
-        action_url=link,
-        action_text='Verify my email',
-        template_id=os.environ.get('EMAILJS_VERIFICATION_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'),
-    )
+    return send_merco_email(user, 'Verify your Merco email', f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.', action_url=link, action_text='Verify my email', template_id=os.environ.get('EMAILJS_VERIFICATION_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'))
 
 
 def initialize_database():
@@ -241,25 +217,20 @@ def initialize_database():
     changed = False
     for name in DEFAULT_CATEGORIES:
         if not Category.query.filter_by(name=name).first():
-            db.session.add(Category(name=name))
-            changed = True
-    if changed:
-        db.session.commit()
+            db.session.add(Category(name=name)); changed = True
+    if changed: db.session.commit()
 
 
 try:
-    with app.app_context():
-        initialize_database()
+    with app.app_context(): initialize_database()
 except Exception:
     app.logger.exception('Database initialization deferred. Check DATABASE_URL and database availability.')
 
 
 @app.context_processor
 def inject_globals():
-    try:
-        categories = Category.query.order_by(Category.name.asc()).all()
-    except Exception:
-        categories = []
+    try: categories = Category.query.order_by(Category.name.asc()).all()
+    except Exception: categories = []
     return {'market_categories': categories, 'supported_languages': SUPPORTED_LANGUAGES, 'supported_currencies': SUPPORTED_CURRENCIES}
 
 
@@ -269,51 +240,35 @@ def health():
         db.session.execute(text('SELECT 1'))
         return jsonify({'status': 'ok', 'service': 'maximise', 'database': 'ok'}), 200
     except Exception:
-        db.session.rollback()
-        return jsonify({'status': 'degraded', 'service': 'maximise', 'database': 'unavailable'}), 503
+        db.session.rollback(); return jsonify({'status': 'degraded', 'service': 'maximise', 'database': 'unavailable'}), 503
 
 
 @app.get('/')
-def home():
-    return redirect(url_for('market'))
+def home(): return redirect(url_for('market'))
 
 
 @app.get('/market')
 def market():
-    search = request.args.get('search', '').strip()
-    category_id = request.args.get('category', type=int)
+    search = request.args.get('search', '').strip(); category_id = request.args.get('category', type=int)
     query = Product.query.filter_by(is_sold_out=False).order_by(Product.created_at.desc(), Product.id.desc())
     if search:
-        term = f'%{search}%'
-        query = query.filter(Product.name.ilike(term) | Product.description.ilike(term))
-    if category_id:
-        query = query.filter_by(category_id=category_id)
+        term = f'%{search}%'; query = query.filter(Product.name.ilike(term) | Product.description.ilike(term))
+    if category_id: query = query.filter_by(category_id=category_id)
     return render_template('market.html', products=query.all(), categories=Category.query.order_by(Category.name.asc()).all(), search=search, selected_category=category_id)
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+    if current_user.is_authenticated: return redirect(url_for('dashboard'))
     if request.method == 'POST':
-        email = request.form.get('email', '').strip().lower()
-        password = request.form.get('password', '')
-        user = User.query.filter_by(email=email).first()
-        admin_email = os.environ.get('ADMIN_EMAIL', '').strip().lower()
-        admin_password = os.environ.get('ADMIN_PASSWORD', '')
+        email = request.form.get('email', '').strip().lower(); password = request.form.get('password', '')
+        user = User.query.filter_by(email=email).first(); admin_email = os.environ.get('ADMIN_EMAIL', '').strip().lower(); admin_password = os.environ.get('ADMIN_PASSWORD', '')
         if admin_email and admin_password and email == admin_email and password == admin_password:
             if not user:
-                user = User(username='Admin', email=email, password=generate_password_hash(password), role='admin')
-                db.session.add(user)
-                db.session.commit()
-            elif user.role != 'admin':
-                user.role = 'admin'
-                db.session.commit()
-            login_user(user)
-            return redirect(url_for('dashboard'))
-        if user and check_password_hash(user.password, password):
-            login_user(user)
-            return redirect(url_for('dashboard'))
+                user = User(username='Admin', email=email, password=generate_password_hash(password), role='admin'); db.session.add(user); db.session.commit()
+            elif user.role != 'admin': user.role = 'admin'; db.session.commit()
+            login_user(user); return redirect(url_for('dashboard'))
+        if user and check_password_hash(user.password, password): login_user(user); return redirect(url_for('dashboard'))
         flash('Invalid email or password.')
     return render_template('login.html')
 
@@ -321,79 +276,53 @@ def login():
 @app.get('/verify-email/<token>')
 def verify_email(token):
     try:
-        data = _serializer().loads(token, max_age=86400)
-        user = User.query.filter_by(id=int(data['id']), email=data['email']).first_or_404()
+        data = _serializer().loads(token, max_age=86400); user = User.query.filter_by(id=int(data['id']), email=data['email']).first_or_404()
     except (BadSignature, SignatureExpired, ValueError, TypeError):
-        flash('That verification link is invalid or has expired. Please request a new one.')
-        return redirect(url_for('login'))
-    user.email_verified = True
-    db.session.commit()
-    flash('Email verified successfully. You can now open a seller store.')
-    return redirect(url_for('login'))
+        flash('That verification link is invalid or has expired. Please request a new one.'); return redirect(url_for('login'))
+    user.email_verified = True; db.session.commit(); flash('Email verified successfully. You can now open a seller store.'); return redirect(url_for('login'))
 
 
 @app.get('/verify-email')
 @login_required
 def verify_email_notice():
-    if current_user.email_verified:
-        return redirect(url_for('settings'))
+    if current_user.email_verified: return redirect(url_for('settings'))
     return render_template('verify_email.html')
 
 
 @app.post('/verify-email/resend')
 @login_required
 def resend_verification():
-    if current_user.email_verified:
-        flash('Your email is already verified.')
-    elif send_verification_email(current_user):
-        flash('A new verification email has been sent.')
-    else:
-        flash('Email delivery failed. Check the EmailJS configuration in Render and the template recipient field.')
+    if current_user.email_verified: flash('Your email is already verified.')
+    elif send_verification_email(current_user): flash('A new verification email has been sent.')
+    else: flash('Email delivery failed. Check the EmailJS configuration in Render and the template recipient field.')
     return redirect(url_for('verify_email_notice'))
 
 
 @app.get('/logout')
 @login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
+def logout(): logout_user(); return redirect(url_for('login'))
 
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+    if current_user.is_authenticated: return redirect(url_for('dashboard'))
     if request.method == 'POST':
-        username = request.form.get('username', '').strip()[:100]
-        email = request.form.get('email', '').strip().lower()
-        password = request.form.get('password', '')
-        if not username or not email or len(password) < 6:
-            flash('Enter your name, email and a password of at least 6 characters.')
-            return render_template('register.html')
-        if User.query.filter_by(email=email).first():
-            flash('An account with that email already exists.')
-            return redirect(url_for('login'))
-        user = User(username=username, email=email, password=generate_password_hash(password), role='buyer', email_verified=False)
-        db.session.add(user)
-        db.session.commit()
-        sent = send_verification_email(user)
-        flash('Account created. Check your email to verify it before opening a seller store.' if sent else 'Account created, but email delivery failed. Please ask the administrator to check EmailJS.')
-        return redirect(url_for('login'))
+        username = request.form.get('username', '').strip()[:100]; email = request.form.get('email', '').strip().lower(); password = request.form.get('password', '')
+        if not username or not email or len(password) < 6: flash('Enter your name, email and a password of at least 6 characters.'); return render_template('register.html')
+        if User.query.filter_by(email=email).first(): flash('An account with that email already exists.'); return redirect(url_for('login'))
+        user = User(username=username, email=email, password=generate_password_hash(password), role='buyer', email_verified=False); db.session.add(user); db.session.commit()
+        sent = send_verification_email(user); flash('Account created. Check your email to verify it before opening a seller store.' if sent else 'Account created, but email delivery failed. Please ask the administrator to check EmailJS.'); return redirect(url_for('login'))
     return render_template('register.html')
 
 
 @app.get('/dashboard')
 @login_required
 def dashboard():
-    if current_user.role == 'admin':
-        return redirect(url_for('admin_dashboard'))
+    if current_user.role == 'admin': return redirect(url_for('admin_dashboard'))
     if current_user.role == 'seller':
-        if not current_user.seller_slug:
-            current_user.seller_slug = unique_seller_slug(current_user.username, current_user.id)
-            db.session.commit()
+        if not current_user.seller_slug: current_user.seller_slug = unique_seller_slug(current_user.username, current_user.id); db.session.commit()
         return redirect(url_for('seller_dashboard'))
-    recent = Product.query.filter_by(is_sold_out=False).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all()
-    return render_template('buyer_dashboard.html', recent=recent)
+    recent = Product.query.filter_by(is_sold_out=False).order_by(Product.created_at.desc(), Product.id.desc()).limit(8).all(); return render_template('buyer_dashboard.html', recent=recent)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -402,37 +331,16 @@ def settings():
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'preferences':
-            language = request.form.get('language', 'auto').strip().lower()
-            currency = request.form.get('currency', 'NGN').strip().upper()
+            language = request.form.get('language', 'auto').strip().lower(); currency = request.form.get('currency', 'NGN').strip().upper()
             if language != 'auto' and language not in SUPPORTED_LANGUAGES: language = 'auto'
             if currency not in SUPPORTED_CURRENCIES: currency = 'NGN'
-            current_user.preferred_language = language
-            current_user.preferred_currency = currency
-            current_user.email_notifications = request.form.get('email_notifications') == '1'
-            db.session.commit()
-            flash('Language, currency and email preferences saved.')
-            return redirect(url_for('settings'))
+            current_user.preferred_language = language; current_user.preferred_currency = currency; current_user.email_notifications = request.form.get('email_notifications') == '1'; db.session.commit(); flash('Language, currency and email preferences saved.'); return redirect(url_for('settings'))
         if action == 'become_seller' and current_user.role == 'buyer':
-            if not current_user.email_verified:
-                send_verification_email(current_user)
-                flash('Verify your email before opening your seller store. A fresh verification link has been sent if EmailJS is configured.')
-                return redirect(url_for('settings'))
-            seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]
-            whatsapp = request.form.get('whatsapp', '').strip()[:30]
-            if not whatsapp:
-                flash('Add a WhatsApp number so buyers can contact you.')
-                return redirect(url_for('settings'))
-            current_user.role = 'seller'
-            current_user.username = seller_name
-            current_user.seller_slug = unique_seller_slug(seller_name, current_user.id)
-            current_user.whatsapp_number = whatsapp
-            db.session.commit()
-            flash('Seller mode activated. Your storefront is now live.')
-        elif action == 'profile':
-            current_user.username = request.form.get('username', current_user.username).strip()[:100]
-            current_user.whatsapp_number = request.form.get('whatsapp', current_user.whatsapp_number or '').strip()[:30]
-            db.session.commit()
-            flash('Settings saved.')
+            if not current_user.email_verified: send_verification_email(current_user); flash('Verify your email before opening your seller store. A fresh verification link has been sent if EmailJS is configured.'); return redirect(url_for('settings'))
+            seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]; whatsapp = request.form.get('whatsapp', '').strip()[:30]
+            if not whatsapp: flash('Add a WhatsApp number so buyers can contact you.'); return redirect(url_for('settings'))
+            current_user.role = 'seller'; current_user.username = seller_name; current_user.seller_slug = unique_seller_slug(seller_name, current_user.id); current_user.whatsapp_number = whatsapp; db.session.commit(); flash('Seller mode activated. Your storefront is now live.')
+        elif action == 'profile': current_user.username = request.form.get('username', current_user.username).strip()[:100]; current_user.whatsapp_number = request.form.get('whatsapp', current_user.whatsapp_number or '').strip()[:30]; db.session.commit(); flash('Settings saved.')
         return redirect(url_for('settings'))
     return render_template('settings.html')
 
@@ -448,93 +356,59 @@ def seller_page(seller_slug):
 def product_detail(id):
     product = Product.query.get_or_404(id)
     screenshots = [s for s in (product.screenshots or '').split(',') if s]
-    return render_template('product_detail.html', product=product, screenshots=screenshots)
+    # Product pages need the same seller/contact/placement context as the
+    # storefront. Previously the template referenced `contact`, which was not
+    # supplied by this route and caused a 500 on every product click.
+    import bootstrap
+    contact = bootstrap.get_contact(product.seller)
+    placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
+    return render_template('product_detail.html', product=product, screenshots=screenshots, contact=contact, placement=placement)
 
 
 @app.get('/buy/<int:id>')
 @login_required
 def buy_product(id):
     product = Product.query.get_or_404(id)
-    if product.is_sold_out:
-        flash('This product is sold out.')
-        return redirect(url_for('product_detail', id=id))
-    if not product.seller.whatsapp_number:
-        flash('The seller has not added a WhatsApp number yet.')
-        return redirect(url_for('product_detail', id=id))
-    message = quote(f"Hi, I'm interested in {product.name} on Merco.")
-    return redirect(f'https://wa.me/{product.seller.whatsapp_number}?text={message}')
-
-
-@app.get('/seller')
-@login_required
-def seller_dashboard():
-    if current_user.role == 'seller' and not current_user.email_verified:
-        return redirect(url_for('verify_email_notice'))
-    if current_user.role != 'seller':
-        flash('Seller mode is available from Settings.')
-        return redirect(url_for('settings'))
-    if not current_user.seller_slug:
-        current_user.seller_slug = unique_seller_slug(current_user.username, current_user.id)
-        db.session.commit()
-    products = Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(), Product.id.desc()).all()
-    return render_template('seller_dashboard.html', products=products)
+    if product.is_sold_out: flash('This product is sold out.'); return redirect(url_for('product_detail', id=id))
+    if not product.seller.whatsapp_number: flash('The seller has not added a WhatsApp number yet.'); return redirect(url_for('product_detail', id=id))
+    message = quote(f"Hi, I'm interested in {product.name} on Merco."); return redirect(f'https://wa.me/{product.seller.whatsapp_number}?text={message}')
 
 
 def save_image(file):
-    if not file or not file.filename:
-        return None
-    original = secure_filename(file.filename)
-    extension = original.rsplit('.', 1)[-1].lower() if '.' in original else ''
-    if extension not in ALLOWED_IMAGE_EXTENSIONS:
-        raise ValueError('Only PNG, JPG, JPEG, WEBP and GIF images are allowed.')
-    filename = f'{uuid.uuid4().hex}.{extension}'
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-    return url_for('static', filename=f'uploads/{filename}')
+    if not file or not file.filename: return None
+    original = secure_filename(file.filename); extension = original.rsplit('.', 1)[-1].lower() if '.' in original else ''
+    if extension not in ALLOWED_IMAGE_EXTENSIONS: raise ValueError('Only PNG, JPG, JPEG, WEBP and GIF images are allowed.')
+    filename = f'{uuid.uuid4().hex}.{extension}'; file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename)); return url_for('static', filename=f'uploads/{filename}')
 
 
 def delete_product_files(product):
-    prefix = url_for('static', filename='uploads/')
-    urls = [product.cover_image] + [x for x in (product.screenshots or '').split(',') if x]
+    prefix = url_for('static', filename='uploads/'); urls = [product.cover_image] + [x for x in (product.screenshots or '').split(',') if x]
     for value in urls:
         if value and value.startswith(prefix):
             path = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(value[len(prefix):]))
             try:
-                if os.path.isfile(path):
-                    os.remove(path)
-            except OSError:
-                app.logger.warning('Could not remove uploaded file: %s', path)
+                if os.path.isfile(path): os.remove(path)
+            except OSError: app.logger.warning('Could not remove uploaded file: %s', path)
 
 
 @app.route('/seller/add', methods=['GET', 'POST'])
 @login_required
 def add_product():
-    if current_user.role != 'seller':
-        flash('Become a seller from Settings before uploading products.')
-        return redirect(url_for('settings'))
+    if current_user.role != 'seller': flash('Become a seller from Settings before uploading products.'); return redirect(url_for('settings'))
     categories = Category.query.order_by(Category.name.asc()).all()
     if request.method == 'POST':
         try:
-            name = request.form.get('name', '').strip()[:200]
-            price = float(request.form.get('price', 0))
-            if not name or price < 0:
-                raise ValueError('Enter a valid product name and price.')
+            name = request.form.get('name', '').strip()[:200]; price = float(request.form.get('price', 0))
+            if not name or price < 0: raise ValueError('Enter a valid product name and price.')
             cover = save_image(request.files.get('cover_image'))
-            if not cover:
-                raise ValueError('Please choose a cover image.')
+            if not cover: raise ValueError('Please choose a cover image.')
             screenshots = [saved for file in request.files.getlist('screenshots') if (saved := save_image(file))]
             current_user.whatsapp_number = request.form.get('whatsapp', current_user.whatsapp_number or '').strip()[:30]
-            db.session.add(Product(name=name, price=price, description=request.form.get('description', '').strip(), category_id=request.form.get('category', type=int), seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots)))
-            db.session.commit()
-            if current_user.email_notifications:
-                send_merco_email(current_user, 'Your Merco product is live', f'Your product {name} is now live in the Merco marketplace.', action_url=url_for('seller_dashboard', _external=True), action_text='Open seller dashboard', template_id=os.environ.get('EMAILJS_PRODUCT_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'))
-            flash('Product published to the marketplace. A confirmation email was sent if notifications are enabled.')
-            return redirect(url_for('seller_dashboard'))
-        except ValueError as exc:
-            flash(str(exc))
-        except Exception:
-            db.session.rollback()
-            app.logger.exception('Product upload failed')
-            flash('The product could not be published. Please try again.')
+            db.session.add(Product(name=name, price=price, description=request.form.get('description', '').strip(), category_id=request.form.get('category', type=int), seller_id=current_user.id, cover_image=cover, screenshots=','.join(screenshots))); db.session.commit()
+            if current_user.email_notifications: send_merco_email(current_user, 'Your Merco product is live', f'Your product {name} is now live in the Merco marketplace.', action_url=url_for('seller_dashboard', _external=True), action_text='Open seller dashboard', template_id=os.environ.get('EMAILJS_PRODUCT_TEMPLATE_ID') or os.environ.get('EMAILJS_TEMPLATE_ID'))
+            flash('Product published to the marketplace. A confirmation email was sent if notifications are enabled.'); return redirect(url_for('seller_dashboard'))
+        except ValueError as exc: flash(str(exc))
+        except Exception: db.session.rollback(); app.logger.exception('Product upload failed'); flash('The product could not be published. Please try again.')
     return render_template('add_product.html', categories=categories)
 
 
@@ -542,65 +416,45 @@ def add_product():
 @login_required
 def seller_delete_product(id):
     product = Product.query.get_or_404(id)
-    if current_user.role != 'seller' or product.seller_id != current_user.id:
-        flash('Access denied.')
-        return redirect(url_for('dashboard'))
-    delete_product_files(product)
-    db.session.delete(product)
-    db.session.commit()
-    flash('Product removed.')
-    return redirect(url_for('seller_dashboard'))
+    if current_user.role != 'seller' or product.seller_id != current_user.id: flash('Access denied.'); return redirect(url_for('dashboard'))
+    delete_product_files(product); db.session.delete(product); db.session.commit(); flash('Product removed.'); return redirect(url_for('seller_dashboard'))
+
+
+@app.get('/seller')
+@login_required
+def seller_dashboard():
+    if current_user.role == 'seller' and not current_user.email_verified: return redirect(url_for('verify_email_notice'))
+    if current_user.role != 'seller': flash('Seller mode is available from Settings.'); return redirect(url_for('settings'))
+    if not current_user.seller_slug: current_user.seller_slug = unique_seller_slug(current_user.username, current_user.id); db.session.commit()
+    products = Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(), Product.id.desc()).all(); return render_template('seller_dashboard.html', products=products)
 
 
 @app.get('/admin/dashboard')
 @login_required
 def admin_dashboard():
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    sellers = User.query.filter_by(role='seller').order_by(User.id.desc()).all()
-    buyers = User.query.filter_by(role='buyer').order_by(User.id.desc()).all()
-    products = Product.query.order_by(Product.created_at.desc(), Product.id.desc()).all()
-    return render_template('admin_dashboard.html', sellers=sellers, buyers=buyers, products=products)
+    if current_user.role != 'admin': flash('Access denied.'); return redirect(url_for('market'))
+    sellers = User.query.filter_by(role='seller').order_by(User.id.desc()).all(); buyers = User.query.filter_by(role='buyer').order_by(User.id.desc()).all(); products = Product.query.order_by(Product.created_at.desc(), Product.id.desc()).all(); return render_template('admin_dashboard.html', sellers=sellers, buyers=buyers, products=products)
 
 
 @app.post('/admin/product/<int:id>/delete')
 @login_required
 def admin_delete_product(id):
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    product = Product.query.get_or_404(id)
-    delete_product_files(product)
-    db.session.delete(product)
-    db.session.commit()
-    flash('Product deleted by admin.')
-    return redirect(url_for('admin_dashboard'))
+    if current_user.role != 'admin': flash('Access denied.'); return redirect(url_for('market'))
+    product = Product.query.get_or_404(id); delete_product_files(product); db.session.delete(product); db.session.commit(); flash('Product deleted by admin.'); return redirect(url_for('admin_dashboard'))
 
 
 @app.post('/admin/user/<int:id>/delete')
 @login_required
 def admin_delete_user(id):
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
+    if current_user.role != 'admin': flash('Access denied.'); return redirect(url_for('market'))
     user = User.query.get_or_404(id)
-    if user.id == current_user.id or user.role == 'admin':
-        flash('Admin accounts cannot be deleted here.')
-        return redirect(url_for('admin_dashboard'))
-    for product in list(user.products):
-        delete_product_files(product)
-    db.session.delete(user)
-    db.session.commit()
-    flash('User and their seller listings were deleted.')
-    return redirect(url_for('admin_dashboard'))
+    if user.id == current_user.id or user.role == 'admin': flash('Admin accounts cannot be deleted here.'); return redirect(url_for('admin_dashboard'))
+    for product in list(user.products): delete_product_files(product)
+    db.session.delete(user); db.session.commit(); flash('User and their seller listings were deleted.'); return redirect(url_for('admin_dashboard'))
 
 
 @app.errorhandler(413)
-def too_large(_error):
-    flash('That upload is too large. Maximum file size is 8 MB.')
-    return redirect(request.referrer or url_for('market'))
+def too_large(_error): flash('That upload is too large. Maximum file size is 8 MB.'); return redirect(request.referrer or url_for('market'))
 
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=os.environ.get('FLASK_DEBUG') == '1')
+if __name__ == '__main__': app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=os.environ.get('FLASK_DEBUG') == '1')
