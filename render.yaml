@@ -5,8 +5,6 @@ services:
     plan: free
     branch: main
     buildCommand: pip install -r requirements.txt
-    # One worker keeps the free Render instance light and avoids duplicate
-    # in-process notification/email queue work across multiple workers.
     startCommand: gunicorn merco_runtime:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     healthCheckPath: /health
     autoDeploy: true
@@ -21,27 +19,17 @@ services:
         sync: false
       - key: PAYSTACK_SECRET_KEY
         sync: false
-      - key: EMAILJS_SERVICE_ID
+      - key: MAILJET_API_KEY
         sync: false
-      - key: EMAILJS_PUBLIC_KEY
+      - key: MAILJET_SECRET_KEY
         sync: false
-      - key: EMAILJS_PRIVATE_KEY
+      - key: MAILJET_FROM_EMAIL
         sync: false
-      - key: EMAILJS_TEMPLATE_ID
-        sync: false
-      - key: EMAILJS_VERIFICATION_TEMPLATE_ID
-        sync: false
-      - key: EMAILJS_NOTIFICATION_TEMPLATE_ID
-        sync: false
-      - key: EMAILJS_PRODUCT_TEMPLATE_ID
-        sync: false
+      - key: MAILJET_FROM_NAME
+        value: Merco
       - key: MERCO_PUBLIC_URL
-        sync: false
-      - key: VAPID_PUBLIC_KEY
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
-      - key: VAPID_CLAIMS_EMAIL
         sync: false
       - key: CRON_SECRET
         sync: false
+      - key: MERCO_SEED_DEMO_DATA
+        value: "1"
