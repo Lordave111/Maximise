@@ -182,7 +182,6 @@ def _ensure_demo_listings_live():
                 app_module.db.session.commit()
             return repaired
     except Exception:
-        app_module.db.session.rollback()
         app.logger.exception('Permanent demo listing repair failed.')
         return 0
 
@@ -190,22 +189,31 @@ def _ensure_demo_listings_live():
 def _seed_and_repair_demo_data():
     """Ensure demo accounts and their inventory exist before relevant requests.
 
-    The demo accounts are part of the deployed Merco fixture catalog. Do not
-    depend on a Render Blueprint environment variable being synchronized to an
-    existing service before allowing demo sellers to log in.
+    The entire operation is explicitly wrapped in an application context. This
+    is important because this function is also called during Gunicorn startup,
+    where there is no active request context yet.
     """
     try:
-        import demo_seed
-        created = demo_seed.seed_demo_data()
-        repaired = _ensure_demo_listings_live()
-        if created or repaired:
-            app.logger.info(
-                'Demo catalog guard created %s sellers and repaired %s records.',
-                created,
-                repaired,
-            )
+        with app.app_context():
+            import demo_seed
+            created = demo_seed.seed_demo_data()
+            repaired = _ensure_demo_listings_live()
+            if created or repaired:
+                app.logger.info(
+                    'Demo catalog guard created %s sellers and repaired %s records.',
+                    created,
+                    repaired,
+                )
     except Exception:
-        app_module.db.session.rollback()
+        # Roll back only while the Flask application context is still active.
+        # The previous implementation attempted db.session.rollback() after
+        # leaving the context, which produced the Render startup error:
+        # "Working outside of application context."
+        try:
+            with app.app_context():
+                app_module.db.session.rollback()
+        except Exception:
+            pass
         app.logger.exception('Demo account/catalog guard failed.')
 
 
