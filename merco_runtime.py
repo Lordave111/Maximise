@@ -139,7 +139,8 @@ def _ensure_demo_listings_live():
             ).all()
             repaired = 0
             for seller in demo_sellers:
-                for product in Product.query.filter_by(seller_id=seller.id).all():
+                products = app_module.Product.query.filter_by(seller_id=seller.id).all()
+                for product in products:
                     product.is_sold_out = False
                     placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
                     if not placement:
@@ -153,8 +154,7 @@ def _ensure_demo_listings_live():
                             starts_at=now,
                             expires_at=horizon,
                         )
-                        db_session = app_module.db.session
-                        db_session.add(placement)
+                        app_module.db.session.add(placement)
                         repaired += 1
                     elif placement.expires_at <= now or placement.seller_id != seller.id:
                         placement.seller_id = seller.id
