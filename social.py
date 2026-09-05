@@ -9,6 +9,7 @@ from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app import app, db, Product, User
+import bootstrap
 
 
 class SellerFollow(db.Model):
@@ -103,11 +104,7 @@ def follow_seller(seller_slug):
 @login_required
 def following():
     rows = SellerFollow.query.filter_by(buyer_id=current_user.id).order_by(SellerFollow.created_at.desc()).all()
-    sellers = []
-    for row in rows:
-        seller = db.session.get(User, row.seller_id)
-        if seller and seller.role == 'seller':
-            sellers.append(seller)
+    sellers = [seller for row in rows if (seller := db.session.get(User, row.seller_id)) and seller.role == 'seller']
     return render_template('following.html', sellers=sellers)
 
 
@@ -126,29 +123,16 @@ def seller_insights():
     analytics = []
     for product in products:
         total_views = ProductView.query.filter_by(product_id=product.id).count()
-        unique_logged_in = db.session.query(ProductView.viewer_id).filter(
-            ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)
-        ).distinct().count()
+        unique_logged_in = db.session.query(ProductView.viewer_id).filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).distinct().count()
         anonymous_views = ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
-        recent_views = ProductView.query.filter(
-            ProductView.product_id == product.id,
-            ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7),
-        ).count()
-        viewer_rows = ProductView.query.filter(
-            ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)
-        ).order_by(ProductView.viewed_at.desc()).limit(20).all()
+        recent_views = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7)).count()
+        viewer_rows = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).order_by(ProductView.viewed_at.desc()).limit(20).all()
         viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
         viewer_users = User.query.filter(User.id.in_(viewer_ids)).all() if viewer_ids else []
         viewer_map = {user.id: user for user in viewer_users}
         viewers = [(viewer_map[row.viewer_id], row.viewed_at) for row in viewer_rows if row.viewer_id in viewer_map]
-        analytics.append({
-            'product': product, 'views': total_views, 'unique_viewers': unique_logged_in,
-            'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers,
-        })
-    return render_template(
-        'seller_insights.html', analytics=analytics, followers=followers,
-        total_views=sum(item['views'] for item in analytics), follower_count=len(followers),
-    )
+        analytics.append({'product': product, 'views': total_views, 'unique_viewers': unique_logged_in, 'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers})
+    return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=sum(item['views'] for item in analytics), follower_count=len(followers))
 
 
 @app.get('/seller/followers/<int:buyer_id>')
@@ -173,14 +157,46 @@ def for_you():
     if current_user.role != 'buyer':
         return redirect(url_for('dashboard'))
     followed_ids = [row.seller_id for row in SellerFollow.query.filter_by(buyer_id=current_user.id).all()]
-    followed_products = []
-    if followed_ids:
-        followed_products = Product.query.filter(
-            Product.seller_id.in_(followed_ids), Product.is_sold_out.is_(False)
-        ).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+    followed_products = Product.query.filter(Product.seller_id.in_(followed_ids), Product.is_sold_out.is_(False)).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all() if followed_ids else []
     excluded = {p.id for p in followed_products}
-    fresh = Product.query.filter(
-        Product.is_sold_out.is_(False),
-        ~Product.id.in_(excluded) if excluded else True,
-    ).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+    fresh = Product.query.filter(Product.is_sold_out.is_(False), ~Product.id.in_(excluded) if excluded else True).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
     return render_template('for_you.html', followed_products=followed_products, fresh=fresh, following_count=len(followed_ids))
+
+
+@app.get('/admin/control')
+@login_required
+def admin_control():
+    if current_user.role != 'admin':
+        flash('Access denied.')
+        return redirect(url_for('market'))
+    sellers = User.query.filter_by(role='seller').order_by(User.id.desc()).all()
+    buyers = User.query.filter_by(role='buyer').order_by(User.id.desc()).all()
+    products = Product.query.order_by(Product.created_at.desc(), Product.id.desc()).all()
+    follows = SellerFollow.query.count()
+    placements = bootstrap.ListingPlacement.query.order_by(bootstrap.ListingPlacement.expires_at.desc()).limit(30).all()
+    return render_template('admin_control.html', sellers=sellers, buyers=buyers, products=products, follows=follows, placements=placements)
+
+
+@app.post('/admin/announce')
+@login_required
+def admin_announce():
+    if current_user.role != 'admin':
+        flash('Access denied.')
+        return redirect(url_for('market'))
+    title = request.form.get('title', '').strip()[:180]
+    message = request.form.get('message', '').strip()[:500]
+    if not title or not message:
+        flash('Add both a title and message.')
+        return redirect(url_for('admin_control'))
+    try:
+        import email_notifications
+        users = User.query.filter(User.id != current_user.id, User.email_notifications.is_(True)).all()
+        for user in users:
+            email_notifications.queue_email(user.id, 'admin_announcement', title, message, '/market', 'Open Merco')
+        db.session.commit()
+        flash(f'Email announcement queued for {len(users)} users.')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Admin announcement email queue failed')
+        flash('The announcement could not be queued.')
+    return redirect(url_for('admin_control'))
