@@ -128,8 +128,6 @@ def _ensure_demo_listings_live():
     become sold out, and it must have a ListingPlacement so every marketplace
     layer sees it as published.
     """
-    if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() != '1':
-        return 0
     now = datetime.utcnow()
     horizon = now + timedelta(days=3650)
     repaired = 0
@@ -189,38 +187,45 @@ def _ensure_demo_listings_live():
         return 0
 
 
-def _repair_demo_market_on_request():
-    """Guarantee demo inventory exists before the public market is rendered."""
-    if request.path not in ('/market', '/health'):
-        return None
-    if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() != '1':
-        return None
+def _seed_and_repair_demo_data():
+    """Ensure demo accounts and their inventory exist before relevant requests.
+
+    The demo accounts are part of the deployed Merco fixture catalog. Do not
+    depend on a Render Blueprint environment variable being synchronized to an
+    existing service before allowing demo sellers to log in.
+    """
     try:
         import demo_seed
-        demo_seed.seed_demo_data()
+        created = demo_seed.seed_demo_data()
         repaired = _ensure_demo_listings_live()
-        if repaired:
-            app.logger.info('Permanent demo catalog repair changed %s records.', repaired)
+        if created or repaired:
+            app.logger.info(
+                'Demo catalog guard created %s sellers and repaired %s records.',
+                created,
+                repaired,
+            )
     except Exception:
         app_module.db.session.rollback()
-        app.logger.exception('Permanent demo catalog repair failed.')
+        app.logger.exception('Demo account/catalog guard failed.')
+
+
+def _repair_demo_market_on_request():
+    """Guarantee demo inventory and accounts exist before relevant pages."""
+    if request.path not in ('/market', '/health', '/login'):
+        return None
+    _seed_and_repair_demo_data()
     return None
 
 
 # Register this AFTER the production modules so it is the final guard before
-# /market or Render's /health request reaches its view function.
+# /market, /login, or Render's /health request reaches its view function.
 app.before_request(_repair_demo_market_on_request)
 
 
-# Seed immediately at process startup as well.
-if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() == '1':
-    try:
-        import demo_seed
-        created = demo_seed.seed_demo_data()
-        app.logger.info('Demo marketplace seed complete; created %s sellers.', created)
-        repaired = _ensure_demo_listings_live()
-        app.logger.info('Permanent demo marketplace repair complete; changed %s records.', repaired)
-    except Exception:
-        app.logger.exception('Demo marketplace seed/repair failed; application startup will continue.')
+# Seed immediately at process startup as well. This is intentionally not gated
+# by MERCO_SEED_DEMO_DATA: these demo seller accounts are part of the production
+# demo marketplace and must exist even when an existing Render service has not
+# synchronized that Blueprint variable.
+_seed_and_repair_demo_data()
 
 application = app
