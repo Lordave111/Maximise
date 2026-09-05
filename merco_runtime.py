@@ -173,6 +173,43 @@ def _ensure_demo_listings_live():
         app.logger.exception('Demo listing repair failed; application startup will continue.')
 
 
+def _repair_demo_market_on_request():
+    """Last-mile guard for the public market page.
+
+    Render can keep an existing service environment even when a Blueprint
+    environment change has not been synchronized. If the public market ever
+    reaches a state with no live demo products, repair/seed the demo catalog
+    during the request instead of showing a misleading ``0 live items`` page.
+    This only runs when MERCO_SEED_DEMO_DATA is explicitly enabled.
+    """
+    if request.path != '/market':
+        return None
+    if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() != '1':
+        return None
+    try:
+        live_demo_count = app_module.db.session.query(app_module.Product.id).join(
+            app_module.User, app_module.Product.seller_id == app_module.User.id
+        ).filter(
+            app_module.User.seller_slug.like('merco-demo-store-%'),
+            app_module.User.role == 'seller',
+            app_module.Product.is_sold_out.is_(False),
+        ).count()
+        if live_demo_count:
+            return None
+
+        import demo_seed
+        demo_seed.seed_demo_data()
+        _ensure_demo_listings_live()
+        app.logger.info('Public market guard repaired the demo catalog.')
+    except Exception:
+        app_module.db.session.rollback()
+        app.logger.exception('Public market demo repair failed.')
+    return None
+
+
+app.before_request(_repair_demo_market_on_request)
+
+
 # Seed the public demo marketplace once per deploy/process start when enabled.
 if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() == '1':
     try:
