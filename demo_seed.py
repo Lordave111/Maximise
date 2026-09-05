@@ -1,15 +1,14 @@
 """Idempotent demo marketplace seed data for Merco.
 
-Set MERCO_SEED_DEMO_DATA=1 to create 50 demo sellers and 3 products per seller.
-Seller account emails use Gmail plus-addresses so the public contact email can
-remain the requested nwahiridaviduche@gmail.com while the User.email column
-stays unique.
+The production demo catalog is intentionally self-sufficient: it creates any
+missing default categories, then creates or repairs 50 demo sellers and three
+products per seller. It is safe to run repeatedly on every application start.
 """
 from decimal import Decimal
 
 from werkzeug.security import generate_password_hash
 
-from app import app, db, User, Product, Category
+from app import app, db, User, Product, Category, DEFAULT_CATEGORIES
 from bootstrap import SellerContact
 
 DEMO_PUBLIC_EMAIL = 'nwahiridaviduche@gmail.com'
@@ -73,11 +72,22 @@ PRODUCTS = [
 
 def seed_demo_data():
     with app.app_context():
+        # Do not assume initialize_database() has populated categories. Render
+        # can start against a brand-new database or an older database, so the
+        # demo seed creates every missing category itself.
         categories = {c.name: c for c in Category.query.all()}
-        if len(categories) < 1:
-            return 0
+        changed = False
+        for name in DEFAULT_CATEGORIES:
+            if name not in categories:
+                category = Category(name=name)
+                db.session.add(category)
+                categories[name] = category
+                changed = True
+        if changed:
+            db.session.flush()
 
         created = 0
+        repaired_products = 0
         for index in range(1, 51):
             seller_name = f'Merco Demo Store {index:02d}'
             account_email = f'nwahiridaviduche+seller{index:02d}@gmail.com'
@@ -86,6 +96,7 @@ def seed_demo_data():
             seller = User.query.filter_by(seller_slug=slug).first()
             if not seller:
                 seller = User.query.filter_by(email=account_email).first()
+
             if not seller:
                 seller = User(
                     username=seller_name,
@@ -103,10 +114,15 @@ def seed_demo_data():
                 db.session.flush()
                 created += 1
             else:
+                # Repair all login-critical fields on every run. This also
+                # fixes demo accounts created by an older version of the seed.
                 seller.username = seller_name
                 seller.role = 'seller'
+                seller.password = generate_password_hash(DEMO_PASSWORD)
                 seller.whatsapp_number = DEMO_WHATSAPP
                 seller.seller_slug = slug
+                seller.preferred_language = 'en'
+                seller.preferred_currency = 'NGN'
                 seller.email_verified = True
                 seller.email_notifications = True
 
@@ -135,6 +151,11 @@ def seed_demo_data():
                     name=product_name,
                 ).first()
                 if existing:
+                    # Existing demo inventory must stay visible indefinitely.
+                    existing.is_sold_out = False
+                    existing.price = float(Decimal(str(price)))
+                    existing.category_id = categories.get(category_name, categories['Other']).id
+                    repaired_products += 1
                     continue
 
                 category = categories.get(category_name) or categories.get('Other')
@@ -154,14 +175,15 @@ def seed_demo_data():
                     seller_id=seller.id,
                     category_id=category.id if category else None,
                 ))
+                repaired_products += 1
+
         db.session.commit()
         return created
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        count = seed_demo_data()
-        print(
-            f'Merco demo seed complete. Created {count} sellers; '
-            'three distinct demo products are assigned to every seller.'
-        )
+    count = seed_demo_data()
+    print(
+        f'Merco demo seed complete. Created {count} sellers; '
+        'three distinct demo products are assigned to every seller.'
+    )
