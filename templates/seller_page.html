@@ -1,41 +1,26 @@
 {% extends 'base.html' %}
 {% block title %}{{ seller.username }} · Merco{% endblock %}
 {% block content %}
-<section class="store-hero" style="padding:30px;position:relative;overflow:hidden">
-  <div class="store-info">
-    <div class="store-avatar">{{ seller.username[:1]|upper }}</div>
-    <div><div class="eyebrow">MERCO SELLER STORE</div><h1>{{ seller.username }}</h1><p>@{{ seller.seller_slug }} · {{ products|length }} active product{{ '' if products|length == 1 else 's' }}</p></div>
+<section class="storefront-hero">
+  <div class="storefront-copy">
+    <div class="eyebrow">OFFICIAL MERCO STORE</div>
+    <div class="storefront-heading"><div class="store-avatar">{{ seller.username[:1]|upper }}</div><div><h1>{{ seller.username }}</h1><p>@{{ seller.seller_slug }} · {{ products|length }} active product{{ '' if products|length == 1 else 's' }}</p></div></div>
+    <p class="storefront-tagline">A curated collection from this Merco seller. Browse the latest arrivals and contact the seller directly when you find something you like.</p>
+    <div class="storefront-actions">
+      {% if current_user.is_authenticated and current_user.id == seller.id %}<a class="btn" href="{{ url_for('seller_dashboard') }}"><i class="ri-dashboard-line"></i> Seller Hub</a>
+      {% elif seller.whatsapp_number %}<a class="btn" href="https://wa.me/{{ seller.whatsapp_number }}"><i class="ri-whatsapp-line"></i> Contact store</a>{% endif %}
+      <a class="btn ghost" href="{{ url_for('market') }}"><i class="ri-arrow-left-line"></i> Marketplace</a>
+    </div>
   </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end">
-    {% if current_user.is_authenticated and current_user.id == seller.id %}
-      <a class="btn" href="{{ url_for('seller_dashboard') }}"><i class="ri-dashboard-line"></i> Seller Hub</a>
-    {% elif seller.whatsapp_number %}
-      <a class="btn" href="https://wa.me/{{ seller.whatsapp_number }}"><i class="ri-whatsapp-line"></i> Contact store</a>
-    {% endif %}
-    <a class="btn ghost" href="{{ url_for('market') }}"><i class="ri-arrow-left-line"></i> Market</a>
-  </div>
+  <div class="storefront-stat"><span>STORE COLLECTION</span><strong>{{ products|length }}</strong><small>active listings</small></div>
 </section>
-
-<div class="panel" style="margin:24px 0 32px;padding:20px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
-  <div><div class="eyebrow">STORE COLLECTION</div><h2 style="margin:5px 0">Shop {{ seller.username }}</h2><p style="margin:0">Browse the current collection and contact the store directly about any available item.</p></div>
-  {% if seller.whatsapp_number %}<a class="btn ghost" href="https://wa.me/{{ seller.whatsapp_number }}"><i class="ri-chat-3-line"></i> Message seller</a>{% endif %}
+<div class="store-contact-bar">
+  <div><div class="eyebrow">SELLER INFORMATION</div><h2>Shop with confidence</h2><p>Direct contact is available for questions, availability and purchases.</p></div>
+  <div class="store-contact-links">{% if contact.phone_number %}<a href="tel:{{ contact.phone_number }}"><i class="ri-phone-line"></i> Call</a>{% endif %}{% if contact.public_email %}<a href="mailto:{{ contact.public_email }}"><i class="ri-mail-line"></i> Email</a>{% endif %}{% if seller.whatsapp_number %}<a href="https://wa.me/{{ seller.whatsapp_number }}"><i class="ri-whatsapp-line"></i> WhatsApp</a>{% endif %}</div>
 </div>
-
-<div class="section-head"><div><div class="eyebrow">CURATED LISTINGS</div><h2>Available now</h2><p>Fresh products from this store.</p></div></div>
-{% if products %}
-<div class="grid">{% for p in products %}
-  <article class="card" style="overflow:hidden">
-    <div class="media" style="position:relative">
-      <img src="{{ p.cover_image or url_for('static', filename='uploads/default.png') }}" alt="{{ p.name }}" loading="lazy" onerror="this.onerror=null;this.src='{{ url_for('static', filename='uploads/default.png') }}'">
-      <span style="position:absolute;left:12px;top:12px;padding:6px 9px;border-radius:999px;background:rgba(0,0,0,.65);backdrop-filter:blur(8px);font-size:11px">{{ p.category.name if p.category else 'General' }}</span>
-    </div>
-    <div class="card-body">
-      <div class="meta">{{ seller.username }}</div>
-      <h3 style="margin-top:5px">{{ p.name }}</h3>
-      <div class="price">₦{{ '{:,.2f}'.format(p.price) }}</div>
-      <div class="card-foot"><a class="btn" href="{{ url_for('product_detail',id=p.id) }}">View item <i class="ri-arrow-right-line"></i></a></div>
-    </div>
-  </article>
-{% endfor %}</div>
-{% else %}<div class="empty"><i class="ri-store-2-line"></i><strong>This store is preparing its collection.</strong><p>Check back soon for new listings.</p></div>{% endif %}
+<div class="section-head storefront-section-head"><div><div class="eyebrow">THE COLLECTION</div><h2>Latest from {{ seller.username }}</h2><p>Explore the seller's available products.</p></div><a class="btn ghost" href="{{ url_for('market') }}">View marketplace</a></div>
+{% if products %}<div class="store-grid">{% for p in products %}<article class="store-product-card">
+  <a class="store-product-media" href="{{ url_for('product_detail',id=p.id) }}"><img src="{{ p.cover_image or url_for('static', filename='uploads/default.png') }}" alt="{{ p.name }}" loading="lazy" onerror="this.onerror=null;this.src='{{ url_for('static', filename='uploads/default.png') }}'"><span class="store-product-arrow"><i class="ri-arrow-right-up-line"></i></span></a>
+  <div class="store-product-body"><div class="store-product-meta"><span>{{ p.category.name if p.category else 'General' }}</span><span>Available</span></div><h3>{{ p.name }}</h3><div class="store-product-bottom"><strong>₦{{ '{:,.2f}'.format(p.price) }}</strong><a href="{{ url_for('product_detail',id=p.id) }}">View product <i class="ri-arrow-right-line"></i></a></div></div>
+</article>{% endfor %}</div>{% else %}<div class="empty"><i class="ri-store-2-line"></i><strong>This store is getting ready.</strong><p>No active products are available right now.</p></div>{% endif %}
 {% endblock %}
