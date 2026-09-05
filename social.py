@@ -1,11 +1,14 @@
+"""Following, seller insights and product-view features.
+
+Marketplace alerts are intentionally email-only. There is no in-site or
+phone notification UI or delivery layer here.
+"""
 from datetime import datetime, timedelta
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import event, select
 
-from app import app, db, Product, User, unique_seller_slug
-from bootstrap import SellerContact, ListingPlacement, get_contact
+from app import app, db, Product, User
 
 
 class SellerFollow(db.Model):
@@ -15,17 +18,6 @@ class SellerFollow(db.Model):
     seller_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     __table_args__ = (db.UniqueConstraint('buyer_id', 'seller_id', name='uq_seller_follow'),)
-
-
-class Notification(db.Model):
-    __tablename__ = 'notification'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
-    title = db.Column(db.String(180), nullable=False)
-    message = db.Column(db.String(500), nullable=False)
-    link = db.Column(db.String(500), nullable=True)
-    read_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
 
 
 class ProductView(db.Model):
@@ -41,36 +33,12 @@ with app.app_context():
     db.create_all()
 
 
-@event.listens_for(Product, 'after_insert')
-def notify_followers_after_product_insert(mapper, connection, target):
-    seller = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
-    link = f'/product/{target.id}'
-
-    # The seller also gets a phone/in-app alert confirming that the listing was uploaded.
-    connection.execute(Notification.__table__.insert().values(
-        user_id=target.seller_id,
-        title='Product uploaded',
-        message=f'{target.name} has been added to your Merco listings.',
-        link=link,
-        created_at=datetime.utcnow(),
-    ))
-
-    rows = connection.execute(select(SellerFollow.buyer_id).where(SellerFollow.seller_id == target.seller_id)).all()
-    if not rows:
-        return
-    values = [{'user_id': row[0], 'title': f'{seller} posted a new product', 'message': f'{target.name} is now available on Merco.', 'link': link, 'created_at': datetime.utcnow()} for row in rows]
-    connection.execute(Notification.__table__.insert(), values)
-
-
 @app.before_request
 def record_product_view():
-    if request.method != 'GET':
-        return
-    path = request.path.rstrip('/')
-    if not path.startswith('/product/'):
+    if request.method != 'GET' or not request.path.rstrip('/').startswith('/product/'):
         return
     try:
-        product_id = int(path.rsplit('/', 1)[-1])
+        product_id = int(request.path.rsplit('/', 1)[-1])
     except (TypeError, ValueError):
         return
     product = db.session.get(Product, product_id)
@@ -78,7 +46,11 @@ def record_product_view():
         return
     now = datetime.utcnow()
     if current_user.is_authenticated:
-        recent = ProductView.query.filter(ProductView.product_id == product_id, ProductView.viewer_id == current_user.id, ProductView.viewed_at >= now - timedelta(days=1)).first()
+        recent = ProductView.query.filter(
+            ProductView.product_id == product_id,
+            ProductView.viewer_id == current_user.id,
+            ProductView.viewed_at >= now - timedelta(days=1),
+        ).first()
         if recent:
             return
         db.session.add(ProductView(product_id=product_id, viewer_id=current_user.id))
@@ -90,21 +62,22 @@ def record_product_view():
         db.session.rollback()
 
 
+def is_following(buyer_id, seller_id):
+    return SellerFollow.query.filter_by(buyer_id=buyer_id, seller_id=seller_id).first() is not None
+
+
 @app.context_processor
 def inject_social_globals():
-    unread = 0
     following_count = 0
     if current_user.is_authenticated:
         try:
-            unread = Notification.query.filter_by(user_id=current_user.id, read_at=None).count()
             following_count = SellerFollow.query.filter_by(buyer_id=current_user.id).count()
         except Exception:
             db.session.rollback()
-    return {'unread_notifications': unread, 'following_count': following_count, 'is_following_seller': lambda seller_id: is_following(current_user.id, seller_id) if current_user.is_authenticated else False}
-
-
-def is_following(buyer_id, seller_id):
-    return SellerFollow.query.filter_by(buyer_id=buyer_id, seller_id=seller_id).first() is not None
+    return {
+        'following_count': following_count,
+        'is_following_seller': lambda seller_id: is_following(current_user.id, seller_id) if current_user.is_authenticated else False,
+    }
 
 
 @app.post('/follow-seller/<seller_slug>')
@@ -121,49 +94,9 @@ def follow_seller(seller_slug):
         flash(f'You unfollowed {seller.username}.')
     else:
         db.session.add(SellerFollow(buyer_id=current_user.id, seller_id=seller.id))
-        db.session.add(Notification(user_id=seller.id, title='New follower', message=f'{current_user.username} is now following your store.', link=url_for('seller_page', seller_slug=seller.seller_slug)))
         db.session.commit()
-        # Email is optional and respects the seller's email-notification setting.
-        try:
-            import email_notifications
-            email_notifications.queue_email(
-                seller.id,
-                'new_follower',
-                f'{current_user.username} followed your Merco store',
-                f'{current_user.username} is now following your store. They will receive updates when you publish new products.',
-                url_for('seller_page', seller_slug=seller.seller_slug, _external=True),
-                'Open my store',
-            )
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            app.logger.exception('New follower email queue failed')
-        flash(f'You are now following {seller.username}.')
+        flash(f'You are now following {seller.username}. New product updates will be sent by email.')
     return redirect(request.referrer or url_for('seller_page', seller_slug=seller_slug))
-
-
-@app.get('/notifications')
-@login_required
-def notifications():
-    items = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.created_at.desc(), Notification.id.desc()).limit(80).all()
-    return render_template('notifications.html', notifications=items)
-
-
-@app.post('/notifications/<int:id>/read')
-@login_required
-def notification_read(id):
-    item = Notification.query.filter_by(id=id, user_id=current_user.id).first_or_404()
-    item.read_at = datetime.utcnow()
-    db.session.commit()
-    return redirect(item.link or url_for('notifications'))
-
-
-@app.post('/notifications/read-all')
-@login_required
-def notifications_read_all():
-    Notification.query.filter_by(user_id=current_user.id, read_at=None).update({'read_at': datetime.utcnow()}, synchronize_session=False)
-    db.session.commit()
-    return redirect(url_for('notifications'))
 
 
 @app.get('/following')
@@ -172,7 +105,7 @@ def following():
     rows = SellerFollow.query.filter_by(buyer_id=current_user.id).order_by(SellerFollow.created_at.desc()).all()
     sellers = []
     for row in rows:
-        seller = User.query.get(row.seller_id)
+        seller = db.session.get(User, row.seller_id)
         if seller and seller.role == 'seller':
             sellers.append(seller)
     return render_template('following.html', sellers=sellers)
@@ -193,17 +126,29 @@ def seller_insights():
     analytics = []
     for product in products:
         total_views = ProductView.query.filter_by(product_id=product.id).count()
-        unique_logged_in = db.session.query(ProductView.viewer_id).filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).distinct().count()
+        unique_logged_in = db.session.query(ProductView.viewer_id).filter(
+            ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)
+        ).distinct().count()
         anonymous_views = ProductView.query.filter_by(product_id=product.id, viewer_id=None).count()
-        recent_views = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7)).count()
-        viewer_rows = ProductView.query.filter(ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)).order_by(ProductView.viewed_at.desc()).limit(20).all()
+        recent_views = ProductView.query.filter(
+            ProductView.product_id == product.id,
+            ProductView.viewed_at >= datetime.utcnow() - timedelta(days=7),
+        ).count()
+        viewer_rows = ProductView.query.filter(
+            ProductView.product_id == product.id, ProductView.viewer_id.isnot(None)
+        ).order_by(ProductView.viewed_at.desc()).limit(20).all()
         viewer_ids = list(dict.fromkeys(row.viewer_id for row in viewer_rows if row.viewer_id))
         viewer_users = User.query.filter(User.id.in_(viewer_ids)).all() if viewer_ids else []
         viewer_map = {user.id: user for user in viewer_users}
         viewers = [(viewer_map[row.viewer_id], row.viewed_at) for row in viewer_rows if row.viewer_id in viewer_map]
-        analytics.append({'product': product, 'views': total_views, 'unique_viewers': unique_logged_in, 'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers})
-    total_views = sum(item['views'] for item in analytics)
-    return render_template('seller_insights.html', analytics=analytics, followers=followers, total_views=total_views, follower_count=len(followers))
+        analytics.append({
+            'product': product, 'views': total_views, 'unique_viewers': unique_logged_in,
+            'anonymous_views': anonymous_views, 'recent_views': recent_views, 'viewers': viewers,
+        })
+    return render_template(
+        'seller_insights.html', analytics=analytics, followers=followers,
+        total_views=sum(item['views'] for item in analytics), follower_count=len(followers),
+    )
 
 
 @app.get('/seller/followers/<int:buyer_id>')
@@ -213,7 +158,7 @@ def seller_follower_detail(buyer_id):
         flash('Seller access required.')
         return redirect(url_for('market'))
     follow = SellerFollow.query.filter_by(seller_id=current_user.id, buyer_id=buyer_id).first_or_404()
-    buyer = User.query.get_or_404(buyer_id)
+    buyer = db.session.get(User, buyer_id)
     viewed = ProductView.query.filter_by(viewer_id=buyer.id).order_by(ProductView.viewed_at.desc()).limit(20).all()
     viewed_product_ids = [row.product_id for row in viewed]
     products = Product.query.filter(Product.id.in_(viewed_product_ids), Product.seller_id == current_user.id).all() if viewed_product_ids else []
@@ -230,103 +175,12 @@ def for_you():
     followed_ids = [row.seller_id for row in SellerFollow.query.filter_by(buyer_id=current_user.id).all()]
     followed_products = []
     if followed_ids:
-        followed_products = Product.query.filter(Product.seller_id.in_(followed_ids), Product.is_sold_out.is_(False)).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+        followed_products = Product.query.filter(
+            Product.seller_id.in_(followed_ids), Product.is_sold_out.is_(False)
+        ).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
     excluded = {p.id for p in followed_products}
-    fresh = Product.query.filter(Product.is_sold_out.is_(False), ~Product.id.in_(excluded) if excluded else True).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
+    fresh = Product.query.filter(
+        Product.is_sold_out.is_(False),
+        ~Product.id.in_(excluded) if excluded else True,
+    ).order_by(Product.created_at.desc(), Product.id.desc()).limit(12).all()
     return render_template('for_you.html', followed_products=followed_products, fresh=fresh, following_count=len(followed_ids))
-
-
-# app.py's original product_detail route does not provide the placement/contact
-# objects required by the production product template. Replace its view
-# function while keeping the existing Flask route and endpoint intact.
-def production_product_detail(id):
-    product = Product.query.get_or_404(id)
-    placement = ListingPlacement.query.filter_by(product_id=product.id).first()
-    screenshots = [s for s in (product.screenshots or '').split(',') if s]
-    return render_template('product_detail.html', product=product, screenshots=screenshots, contact=get_contact(product.seller), placement=placement)
-
-
-app.view_functions['product_detail'] = production_product_detail
-
-
-@app.get('/admin/control')
-@login_required
-def admin_control():
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    sellers = User.query.filter_by(role='seller').order_by(User.id.desc()).all()
-    buyers = User.query.filter_by(role='buyer').order_by(User.id.desc()).all()
-    products = Product.query.order_by(Product.created_at.desc(), Product.id.desc()).all()
-    follows = SellerFollow.query.count()
-    unread = Notification.query.filter(Notification.read_at.is_(None)).count()
-    placements = ListingPlacement.query.order_by(ListingPlacement.expires_at.desc()).limit(30).all()
-    return render_template('admin_control.html', sellers=sellers, buyers=buyers, products=products, follows=follows, unread_notifications=unread, placements=placements)
-
-
-@app.post('/admin/product/<int:id>/toggle')
-@login_required
-def admin_toggle_product(id):
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    product = Product.query.get_or_404(id)
-    product.is_sold_out = not bool(product.is_sold_out)
-    db.session.commit()
-    flash(f'{product.name} is now {"hidden" if product.is_sold_out else "visible"} in the market.')
-    return redirect(request.referrer or url_for('admin_control'))
-
-
-@app.post('/admin/user/<int:id>/role')
-@login_required
-def admin_change_role(id):
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    user = User.query.get_or_404(id)
-    if user.role == 'admin' or user.id == current_user.id:
-        flash('Admin accounts cannot be changed here.')
-        return redirect(url_for('admin_control'))
-    target = request.form.get('role', 'buyer')
-    if target not in ('buyer', 'seller'):
-        flash('Invalid role.')
-        return redirect(url_for('admin_control'))
-    user.role = target
-    if target == 'seller':
-        user.seller_slug = unique_seller_slug(user.username, user.id)
-        contact = SellerContact.query.filter_by(seller_id=user.id).first()
-        if not contact:
-            db.session.add(SellerContact(seller_id=user.id, public_email=user.email, phone_number='', free_listing_used=False))
-    db.session.commit()
-    flash(f'{user.username} is now a {target}.')
-    return redirect(url_for('admin_control'))
-
-
-@app.post('/admin/announce')
-@login_required
-def admin_announce():
-    if current_user.role != 'admin':
-        flash('Access denied.')
-        return redirect(url_for('market'))
-    title = request.form.get('title', '').strip()[:180]
-    message = request.form.get('message', '').strip()[:500]
-    if not title or not message:
-        flash('Add both a title and message.')
-        return redirect(url_for('admin_control'))
-    users = User.query.filter(User.id != current_user.id).all()
-    db.session.bulk_save_objects([Notification(user_id=u.id, title=title, message=message, link='/market') for u in users])
-    db.session.commit()
-    # Email the same announcement to users who have marketplace email alerts enabled.
-    try:
-        import email_notifications
-        for user in users:
-            email_notifications.queue_email(user.id, 'admin_announcement', title, message, '/market', 'Open Merco')
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('Admin announcement email queue failed')
-    flash(f'Announcement delivered to {len(users)} users.')
-    return redirect(url_for('admin_control'))
-
-
-import seller_features  # noqa: E402,F401
