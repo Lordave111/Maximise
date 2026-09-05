@@ -122,32 +122,35 @@ import email_notifications  # noqa: E402,F401
 
 
 def _ensure_demo_listings_live():
-    """Repair demo listings so seeded products also have active placements.
+    """Make every seeded demo product permanently live.
 
-    Demo products are database rows, but the marketplace's live-listing layer
-    uses ListingPlacement records. Earlier demo seeding created the products
-    without placements, which made seller dashboards report zero live items.
-    This startup repair is idempotent and also refreshes expired demo placements.
+    Demo inventory is fixture data, not paid inventory. It must never expire or
+    become sold out, and it must have a ListingPlacement so every marketplace
+    layer sees it as published.
     """
+    if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() != '1':
+        return 0
     now = datetime.utcnow()
-    horizon = now + timedelta(days=365)
+    horizon = now + timedelta(days=3650)
+    repaired = 0
     try:
         with app.app_context():
             demo_sellers = app_module.User.query.filter(
                 app_module.User.role == 'seller',
                 app_module.User.seller_slug.like('merco-demo-store-%'),
             ).all()
-            repaired = 0
             for seller in demo_sellers:
                 products = app_module.Product.query.filter_by(seller_id=seller.id).all()
                 for product in products:
-                    product.is_sold_out = False
+                    if product.is_sold_out:
+                        product.is_sold_out = False
+                        repaired += 1
                     placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
                     if not placement:
                         placement = bootstrap.ListingPlacement(
                             product_id=product.id,
                             seller_id=seller.id,
-                            duration_hours=24,
+                            duration_hours=87600,
                             fee_percent=0,
                             amount_kobo=0,
                             is_free=True,
@@ -156,68 +159,68 @@ def _ensure_demo_listings_live():
                         )
                         app_module.db.session.add(placement)
                         repaired += 1
-                    elif placement.expires_at <= now or placement.seller_id != seller.id:
-                        placement.seller_id = seller.id
-                        placement.duration_hours = 24
-                        placement.fee_percent = 0
-                        placement.amount_kobo = 0
-                        placement.is_free = True
-                        placement.starts_at = now
-                        placement.expires_at = horizon
-                        repaired += 1
+                    else:
+                        changed = False
+                        if placement.seller_id != seller.id:
+                            placement.seller_id = seller.id
+                            changed = True
+                        if placement.is_free is not True:
+                            placement.is_free = True
+                            changed = True
+                        if placement.fee_percent != 0:
+                            placement.fee_percent = 0
+                            changed = True
+                        if placement.amount_kobo != 0:
+                            placement.amount_kobo = 0
+                            changed = True
+                        if not placement.expires_at or placement.expires_at <= now:
+                            placement.starts_at = now
+                            placement.expires_at = horizon
+                            placement.duration_hours = 87600
+                            changed = True
+                        if changed:
+                            repaired += 1
             if repaired:
                 app_module.db.session.commit()
-                app.logger.info('Demo listing repair complete; activated %s listings.', repaired)
+            return repaired
     except Exception:
         app_module.db.session.rollback()
-        app.logger.exception('Demo listing repair failed; application startup will continue.')
+        app.logger.exception('Permanent demo listing repair failed.')
+        return 0
 
 
 def _repair_demo_market_on_request():
-    """Last-mile guard for the public market page.
-
-    Render can keep an existing service environment even when a Blueprint
-    environment change has not been synchronized. If the public market ever
-    reaches a state with no live demo products, repair/seed the demo catalog
-    during the request instead of showing a misleading ``0 live items`` page.
-    This only runs when MERCO_SEED_DEMO_DATA is explicitly enabled.
-    """
-    if request.path != '/market':
+    """Guarantee demo inventory exists before the public market is rendered."""
+    if request.path not in ('/market', '/health'):
         return None
     if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() != '1':
         return None
     try:
-        live_demo_count = app_module.db.session.query(app_module.Product.id).join(
-            app_module.User, app_module.Product.seller_id == app_module.User.id
-        ).filter(
-            app_module.User.seller_slug.like('merco-demo-store-%'),
-            app_module.User.role == 'seller',
-            app_module.Product.is_sold_out.is_(False),
-        ).count()
-        if live_demo_count:
-            return None
-
         import demo_seed
         demo_seed.seed_demo_data()
-        _ensure_demo_listings_live()
-        app.logger.info('Public market guard repaired the demo catalog.')
+        repaired = _ensure_demo_listings_live()
+        if repaired:
+            app.logger.info('Permanent demo catalog repair changed %s records.', repaired)
     except Exception:
         app_module.db.session.rollback()
-        app.logger.exception('Public market demo repair failed.')
+        app.logger.exception('Permanent demo catalog repair failed.')
     return None
 
 
+# Register this AFTER the production modules so it is the final guard before
+# /market or Render's /health request reaches its view function.
 app.before_request(_repair_demo_market_on_request)
 
 
-# Seed the public demo marketplace once per deploy/process start when enabled.
+# Seed immediately at process startup as well.
 if os.environ.get('MERCO_SEED_DEMO_DATA', '').strip() == '1':
     try:
         import demo_seed
         created = demo_seed.seed_demo_data()
         app.logger.info('Demo marketplace seed complete; created %s sellers.', created)
-        _ensure_demo_listings_live()
+        repaired = _ensure_demo_listings_live()
+        app.logger.info('Permanent demo marketplace repair complete; changed %s records.', repaired)
     except Exception:
-        app.logger.exception('Demo marketplace seed failed; application startup will continue.')
+        app.logger.exception('Demo marketplace seed/repair failed; application startup will continue.')
 
 application = app
