@@ -6,7 +6,7 @@ import requests
 from urllib.parse import quote, parse_qsl, urlencode, urlsplit, urlunsplit
 
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+from flask_login import LoginManager, login_user, logout_user, current_user, UserMixin
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -112,10 +112,12 @@ def health():
 def home(): return redirect(url_for('market'))
 @app.get('/market')
 def market():
-    search=request.args.get('search','').strip(); category_id=request.args.get('category',type=int); query=Product.query.filter_by(is_sold_out=False).order_by(Product.created_at.desc(),Product.id.desc())
+    search=request.args.get('search','').strip(); category_id=request.args.get('category',type=int); page=max(request.args.get('page',1,type=int),1)
+    query=Product.query.filter_by(is_sold_out=False).order_by(Product.created_at.desc(),Product.id.desc())
     if search: query=query.filter(Product.name.ilike(f'%{search}%') | Product.description.ilike(f'%{search}%'))
     if category_id: query=query.filter_by(category_id=category_id)
-    return render_template('market.html',products=query.all(),categories=Category.query.order_by(Category.name.asc()).all(),search=search,selected_category=category_id)
+    total=query.count(); pagination=query.paginate(page=page,per_page=12,error_out=False)
+    return render_template('market.html',products=pagination.items,pagination=pagination,total_products=total,categories=Category.query.order_by(Category.name.asc()).all(),search=search,selected_category=category_id)
 @app.route('/login',methods=['GET','POST'])
 def login():
     if current_user.is_authenticated:return redirect(url_for('dashboard'))
@@ -218,43 +220,40 @@ def add_product():
             name=request.form.get('name','').strip()[:200]; price=float(request.form.get('price',0))
             if not name or price<0: raise ValueError('Enter a valid product name and price.')
             cover=save_image(request.files.get('cover_image'))
-            if not cover: raise ValueError('Please choose a cover image.')
-            screenshots=[saved for file in request.files.getlist('screenshots') if (saved:=save_image(file))]; current_user.whatsapp_number=request.form.get('whatsapp',current_user.whatsapp_number or '').strip()[:30]
-            db.session.add(Product(name=name,price=price,description=request.form.get('description','').strip(),category_id=request.form.get('category',type=int),seller_id=current_user.id,cover_image=cover,screenshots=','.join(screenshots))); db.session.commit(); flash('Product published to the marketplace.'); return redirect(url_for('seller_dashboard'))
-        except ValueError as exc: flash(str(exc))
-        except Exception: db.session.rollback(); app.logger.exception('Product upload failed'); flash('The product could not be published. Please try again.')
+            shots=[save_image(request.files.get(k)) for k in ('screenshot_1','screenshot_2','screenshot_3')]
+            shots=[s for s in shots if s]
+            product=Product(name=name,price=price,description=request.form.get('description','').strip(),cover_image=cover,screenshots=','.join(shots),seller_id=current_user.id,category_id=request.form.get('category_id',type=int),is_sold_out=False); db.session.add(product); db.session.commit(); flash('Product published to your store.'); return redirect(url_for('seller_dashboard'))
+        except Exception as exc: db.session.rollback(); flash(str(exc))
     return render_template('add_product.html',categories=categories)
 @app.get('/seller')
 @login_required
 def seller_dashboard():
-    if current_user.role=='seller' and not current_user.email_verified:return redirect(url_for('verify_email_notice'))
-    if current_user.role!='seller':flash('Seller mode is available from Settings.');return redirect(url_for('settings'))
-    if not current_user.seller_slug:current_user.seller_slug=unique_seller_slug(current_user.username,current_user.id);db.session.commit()
-    products=Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(),Product.id.desc()).all();return render_template('seller_dashboard.html',products=products)
-@app.post('/seller/product/<int:id>/delete')
+    if current_user.role!='seller': return redirect(url_for('settings'))
+    products=Product.query.filter_by(seller_id=current_user.id).order_by(Product.created_at.desc(),Product.id.desc()).all(); return render_template('seller_dashboard.html',products=products)
+@app.post('/seller/delete/<int:id>')
 @login_required
-def seller_delete_product(id):
+def delete_product(id):
     product=Product.query.get_or_404(id)
-    if current_user.role!='seller' or product.seller_id!=current_user.id:flash('Access denied.');return redirect(url_for('dashboard'))
-    delete_product_files(product);db.session.delete(product);db.session.commit();flash('Product removed.');return redirect(url_for('seller_dashboard'))
+    if product.seller_id!=current_user.id and current_user.role!='admin': flash('You cannot delete this product.'); return redirect(url_for('seller_dashboard'))
+    delete_product_files(product); db.session.delete(product); db.session.commit(); flash('Product removed.'); return redirect(url_for('seller_dashboard'))
 @app.get('/admin/dashboard')
 @login_required
 def admin_dashboard():
-    if current_user.role!='admin':flash('Access denied.');return redirect(url_for('market'))
-    return render_template('admin_dashboard.html',sellers=User.query.filter_by(role='seller').order_by(User.id.desc()).all(),buyers=User.query.filter_by(role='buyer').order_by(User.id.desc()).all(),products=Product.query.order_by(Product.created_at.desc(),Product.id.desc()).all())
+    if current_user.role!='admin': flash('Admin access required.'); return redirect(url_for('dashboard'))
+    return render_template('admin_dashboard.html',products=Product.query.order_by(Product.id.desc()).all(),users=User.query.order_by(User.id.desc()).all())
 @app.post('/admin/product/<int:id>/delete')
 @login_required
 def admin_delete_product(id):
-    if current_user.role!='admin':flash('Access denied.');return redirect(url_for('market'))
-    product=Product.query.get_or_404(id);delete_product_files(product);db.session.delete(product);db.session.commit();flash('Product deleted by admin.');return redirect(url_for('admin_dashboard'))
+    if current_user.role!='admin': flash('Admin access required.'); return redirect(url_for('dashboard'))
+    product=Product.query.get_or_404(id); delete_product_files(product); db.session.delete(product); db.session.commit(); flash('Product deleted.'); return redirect(url_for('admin_dashboard'))
 @app.post('/admin/user/<int:id>/delete')
 @login_required
 def admin_delete_user(id):
-    if current_user.role!='admin':flash('Access denied.');return redirect(url_for('market'))
+    if current_user.role!='admin': flash('Admin access required.'); return redirect(url_for('dashboard'))
     user=User.query.get_or_404(id)
-    if user.id==current_user.id or user.role=='admin':flash('Admin accounts cannot be deleted here.');return redirect(url_for('admin_dashboard'))
-    for product in list(user.products):delete_product_files(product)
-    db.session.delete(user);db.session.commit();flash('User and their seller listings were deleted.');return redirect(url_for('admin_dashboard'))
-@app.errorhandler(413)
-def too_large(_error):flash('That upload is too large. Maximum file size is 8 MB.');return redirect(request.referrer or url_for('market'))
-if __name__=='__main__':app.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)),debug=os.environ.get('FLASK_DEBUG')=='1')
+    if user.id==current_user.id: flash('You cannot delete your own admin account.'); return redirect(url_for('admin_dashboard'))
+    for product in list(user.products): delete_product_files(product)
+    db.session.delete(user); db.session.commit(); flash('User deleted.'); return redirect(url_for('admin_dashboard'))
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0',port=int(os.environ.get('PORT',5000)),debug=os.environ.get('FLASK_DEBUG')=='1')
