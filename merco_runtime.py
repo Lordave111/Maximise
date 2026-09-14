@@ -98,14 +98,46 @@ def activate_seller_production():
     return _activate_seller()
 
 
-@app.before_request
+app.before_request_funcs.setdefault(None, [])
+
+
 def safe_seller_activation():
     if request.path == '/settings' and request.method == 'POST' and request.form.get('action') == 'become_seller':
         return _activate_seller()
     return None
 
 
+app.before_request(safe_seller_activation)
+
+
 import email_notifications  # noqa: E402,F401
+
+# Email queue delivery used to run synchronously after every request. A slow
+# mail provider could therefore make unrelated pages appear to hang for up to
+# the HTTP timeout. Keep transactional email synchronous, but process queued
+# notification mail in one small background worker instead.
+_EMAIL_WORKER_STOP = threading.Event()
+_EMAIL_WORKER_LOCK = threading.Lock()
+
+
+def _process_queued_emails_background():
+    if not _EMAIL_WORKER_LOCK.acquire(blocking=False):
+        return
+    try:
+        email_notifications.process_email_queue(limit=3)
+    except Exception:
+        app.logger.exception('Background email queue processing failed')
+    finally:
+        _EMAIL_WORKER_LOCK.release()
+
+
+def _email_worker_loop():
+    while not _EMAIL_WORKER_STOP.wait(15):
+        _process_queued_emails_background()
+
+
+_EMAIL_WORKER_THREAD = threading.Thread(target=_email_worker_loop, name='merco-email-worker', daemon=True)
+_EMAIL_WORKER_THREAD.start()
 
 
 _DEMO_SEED_READY = False
@@ -160,12 +192,7 @@ def _ensure_demo_listings_live():
 
 
 def _seed_and_repair_demo_data():
-    """Create/repair demo data without blocking application startup.
-
-    A process-local lock is sufficient for the deployed Render configuration
-    (one Gunicorn worker with multiple request threads) and avoids MySQL
-    advisory locks that can block the whole web process behind a gateway.
-    """
+    """Create/repair demo data without blocking application startup."""
     global _DEMO_SEED_READY, _DEMO_SEED_READY_AT
 
     if _DEMO_SEED_READY and time.time() - _DEMO_SEED_READY_AT < 300:
@@ -218,7 +245,9 @@ def _seed_and_repair_demo_data():
 
 
 def _repair_demo_market_on_request():
-    if request.path in ('/market', '/health', '/login'):
+    # Demo data is only needed by the marketplace/health check. Seeding on the
+    # login page made authentication unnecessarily slow on a cold deployment.
+    if request.path in ('/market', '/health'):
         _seed_and_repair_demo_data()
     return None
 
@@ -253,9 +282,9 @@ def _demo_health():
 
 app.view_functions['health'] = _demo_health
 
+# Apply the responsive marketplace view and contact-aware seller storefront.
+# This module must be imported after the app routes exist.
+import marketfix  # noqa: E402,F401
 
-# Do NOT seed during module import/startup. A slow database seed must never
-# prevent Gunicorn from binding its port and serving the main application.
-# Demo data is seeded lazily on /login, /market, or /health instead.
 
 application = app
