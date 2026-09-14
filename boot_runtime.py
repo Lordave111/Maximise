@@ -18,6 +18,7 @@ from merco_runtime import app  # noqa: E402
 # Load the SMTP email integration after the application and production routes
 # are initialized. This installs the verification/transactional email hooks.
 import email_notifications  # noqa: E402,F401
+import email_overrides  # noqa: E402,F401
 
 
 def _email_worker():
