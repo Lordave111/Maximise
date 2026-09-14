@@ -5,7 +5,6 @@ from datetime import datetime
 
 from flask import jsonify, request
 from flask_login import current_user, login_required
-from sqlalchemy import event
 from sitefix import app, db
 
 try:
@@ -25,16 +24,6 @@ class PushSubscription(db.Model):
     user_agent = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class PushJob(db.Model):
-    __tablename__ = 'push_job'
-    id = db.Column(db.Integer, primary_key=True)
-    notification_id = db.Column(db.Integer, nullable=False, index=True)
-    status = db.Column(db.String(20), nullable=False, default='pending', index=True)
-    attempts = db.Column(db.Integer, nullable=False, default=0)
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    processed_at = db.Column(db.DateTime, nullable=True)
 
 
 with app.app_context():
@@ -80,22 +69,10 @@ def send_push_to_user(user_id, title, message, url='/market', kind='general'):
     return sent
 
 
-# Queue each persistent in-site notification for external delivery. The queue is
-# inserted in the same DB transaction, so events cannot be lost between layers.
-try:
-    from notifications import Notification
-
-    @event.listens_for(Notification, 'after_insert')
-    def queue_notification_push(mapper, connection, target):
-        connection.execute(PushJob.__table__.insert().values(notification_id=target.id, status='pending', attempts=0, created_at=datetime.utcnow()))
-except Exception:
-    pass
-
-
 def process_push_queue(limit=20):
     if not push_configured():
         return 0
-    from notifications import Notification
+    from notifications import Notification, PushJob
     jobs = PushJob.query.filter_by(status='pending').order_by(PushJob.created_at.asc()).limit(limit).all()
     processed = 0
     for job in jobs:
