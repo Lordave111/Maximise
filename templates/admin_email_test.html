@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}Email Diagnostics · Merco{% endblock %}
+{% block content %}
+<style>
+.email-test-wrap{max-width:760px;margin:40px auto;padding:0 18px}.email-card{background:#0d1511;border:1px solid #21352a;border-radius:20px;padding:30px;box-shadow:0 18px 50px rgba(0,0,0,.22)}.eyebrow{color:#00e887;font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase}.email-card h1{margin:8px 0 10px;font-size:30px}.email-card p{color:#91a69b;line-height:1.65}.email-form{display:flex;gap:10px;margin-top:24px}.email-form input{flex:1;min-width:0;padding:14px 15px;border-radius:11px;border:1px solid #294034;background:#09100c;color:#eef7f1}.email-form button{padding:14px 20px;border:0;border-radius:11px;background:#00e887;color:#04110a;font-weight:800;cursor:pointer}.result{margin-top:20px;padding:16px;border-radius:12px;border:1px solid #294034;background:#101b15}.result.ok{border-color:#00e887}.result.bad{border-color:#b96b6b}.small{font-size:12px;color:#71857a}
+@media(max-width:600px){.email-form{flex-direction:column}.email-form button{width:100%}.email-card{padding:22px}}
+</style>
+<div class="email-test-wrap">
+  <div class="email-card">
+    <div class="eyebrow">Merco Admin · Diagnostics</div>
+    <h1>Test email delivery</h1>
+    <p>Send a real message from the Render server through Gmail SMTP. The test never displays your SMTP password.</p>
+    <form method="post" class="email-form">
+      <input type="email" name="recipient" value="{{ recipient }}" placeholder="Recipient email" required>
+      <button type="submit">Send test email</button>
+    </form>
+    {% if result %}
+      <div class="result {{ 'ok' if result.ok else 'bad' }}">
+        <strong>{{ 'SMTP is working' if result.ok else 'SMTP test failed' }}</strong>
+        <p>{{ result.message }}</p>
+        <div class="small">Diagnostic stage: {{ result.stage }}</div>
+      </div>
+    {% endif %}
+    <p class="small" style="margin-top:22px">This page is restricted to accounts with the admin role.</p>
+  </div>
+</div>
+{% endblock %}
