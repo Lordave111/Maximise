@@ -24,6 +24,16 @@ class Notification(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
+class PushJob(db.Model):
+    __tablename__ = 'push_job'
+    id = db.Column(db.Integer, primary_key=True)
+    notification_id = db.Column(db.Integer, nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='pending', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=True)
+
+
 with app.app_context():
     db.create_all()
 
@@ -39,11 +49,14 @@ def create_notification(user_id, kind, title, message, action_url='', action_tex
 def create_notification_connection(connection, user_id, kind, title, message, action_url='', action_text='Open'):
     if not user_id:
         return
-    connection.execute(Notification.__table__.insert().values(
+    result = connection.execute(Notification.__table__.insert().values(
         user_id=user_id, kind=kind, title=title[:180], message=message[:1000],
         action_url=(action_url or '')[:600], action_text=(action_text or 'Open')[:100],
         is_read=False, created_at=datetime.utcnow()
     ))
+    notification_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
+    if notification_id:
+        connection.execute(PushJob.__table__.insert().values(notification_id=notification_id, status='pending', attempts=0, created_at=datetime.utcnow()))
 
 
 @app.get('/api/notifications')
