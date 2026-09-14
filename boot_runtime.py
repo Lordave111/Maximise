@@ -14,6 +14,7 @@ from merco_runtime import app  # noqa: E402
 import email_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
+import paystack_redirectfix  # noqa: E402,F401
 
 
 def _email_worker():
