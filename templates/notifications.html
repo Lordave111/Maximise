@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block content %}
+<style>
+.notification-center{max-width:1000px;margin:40px auto;padding:0 18px}.notification-head{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:24px}.notification-head h1{margin:0}.notification-list{display:grid;gap:12px}.notification-card{display:flex;gap:15px;padding:18px;border:1px solid rgba(255,255,255,.09);border-radius:16px;background:rgba(15,20,18,.82);transition:.2s}.notification-card.unread{border-color:rgba(0,255,136,.35);box-shadow:0 0 20px rgba(0,255,136,.05)}.notification-dot{width:10px;height:10px;border-radius:50%;background:#00ff88;margin-top:7px;flex:0 0 auto}.notification-card.read .notification-dot{opacity:.18}.notification-body{flex:1}.notification-title{font-weight:800;margin-bottom:5px}.notification-message{color:#aebbb5;line-height:1.55}.notification-time{font-size:12px;color:#748079;margin-top:8px}.notification-action{display:inline-block;margin-top:12px;color:#00ff88;text-decoration:none;font-weight:700}.notification-empty{text-align:center;padding:70px 20px;color:#89958f;border:1px dashed rgba(255,255,255,.12);border-radius:18px}
+</style>
+<section class="notification-center">
+  <div class="notification-head"><div><h1>Notifications</h1><p style="color:#87938d">Stay updated on your Merco activity.</p></div><button id="mark-all-read" type="button">Mark all as read</button></div>
+  <div class="notification-list" id="notification-list">
+    {% for n in notifications %}
+      <article class="notification-card {{ 'unread' if not n.is_read else 'read' }}" data-id="{{ n.id }}">
+        <span class="notification-dot"></span><div class="notification-body"><div class="notification-title">{{ n.title }}</div><div class="notification-message">{{ n.message }}</div><div class="notification-time">{{ n.created_at.strftime('%b %d, %Y · %H:%M') if n.created_at else '' }}</div>{% if n.action_url %}<a class="notification-action" href="{{ url_for('open_notification', notification_id=n.id) }}">{{ n.action_text or 'Open' }} →</a>{% endif %}</div>
+      </article>
+    {% else %}<div class="notification-empty">You're all caught up. New activity will appear here.</div>{% endfor %}
+  </div>
+</section>
+<script>
+const btn=document.getElementById('mark-all-read');
+btn?.addEventListener('click',async()=>{await fetch('/api/notifications/read-all',{method:'POST'});document.querySelectorAll('.notification-card').forEach(x=>{x.classList.remove('unread');x.classList.add('read')});});
+</script>
+{% endblock %}
