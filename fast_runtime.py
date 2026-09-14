@@ -1,8 +1,11 @@
-"""Fast production entrypoint for Merco.
+"""Fast production entrypoint for Merco."""
 
-Loads the production hardening/runtime modules, then activates the explicit
-marketplace/store fixes. Normal page requests never run demo-data repair.
-"""
+import builtins
+from flask_login import login_required
+
+# app.py currently references @login_required while importing. Make the
+# decorator available before merco_runtime imports the application module.
+builtins.login_required = login_required
 
 from flask import jsonify
 from sqlalchemy import text
