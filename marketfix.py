@@ -8,8 +8,10 @@ def responsive_market():
     search = request.args.get('search', '').strip()
     category_id = request.args.get('category', type=int)
     page = max(request.args.get('page', 1, type=int), 1)
-    requested_size = request.args.get('page_size', type=int)
-    page_size = requested_size if requested_size in (8, 12, 16) else 12
+
+    # Server-side pagination: only 12 products are sent to the browser per page.
+    # The full catalogue is never rendered into the page at once.
+    page_size = 12
 
     query = Product.query.filter_by(is_sold_out=False).order_by(
         Product.created_at.desc(), Product.id.desc()
@@ -24,6 +26,7 @@ def responsive_market():
 
     total = query.count()
     pagination = query.paginate(page=page, per_page=page_size, error_out=False)
+
     return render_template(
         'market.html',
         products=pagination.items,
