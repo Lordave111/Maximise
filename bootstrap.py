@@ -77,7 +77,6 @@ class ListingPlacement(db.Model):
 
 with app.app_context():
     db.create_all()
-    # Existing sellers already have a listing, so their complimentary first slot is consumed.
     for seller in User.query.filter_by(role='seller').all():
         contact = SellerContact.query.filter_by(seller_id=seller.id).first()
         if not contact:
@@ -339,10 +338,10 @@ def paystack_callback():
         transaction = verify_with_paystack(reference)
         if complete_verified_payment(payment, transaction):
             flash('Payment confirmed. Your listing is now live.')
-        else:
-            payment.status = 'failed'
-            db.session.commit()
-            flash('Payment was not confirmed, so the listing was not published.')
+            return redirect(url_for('seller_storefront') if 'seller_storefront' in app.view_functions else url_for('seller_dashboard'))
+        payment.status = 'failed'
+        db.session.commit()
+        flash('Payment was not confirmed, so the listing was not published.')
     except Exception:
         app.logger.exception('Paystack callback verification failed')
         flash('We could not verify the payment yet. If you were charged, please contact support.')
@@ -378,9 +377,7 @@ def paystack_webhook():
 @login_required
 def seller_payments():
     if current_user.role != 'seller':
-        return redirect(url_for('settings'))
-    payments = ListingPayment.query.filter_by(seller_id=current_user.id).order_by(ListingPayment.id.desc()).all()
+        flash('Seller access required.')
+        return redirect(url_for('market'))
+    payments = ListingPayment.query.filter_by(seller_id=current_user.id).order_by(ListingPayment.created_at.desc()).all()
     return render_template('seller_payments.html', payments=payments)
-
-
-application = app
