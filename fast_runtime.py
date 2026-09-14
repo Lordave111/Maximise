@@ -1,7 +1,7 @@
 """Fast production entrypoint for Merco.
 
-Loads the existing runtime configuration, then removes the legacy request-time
-Demo catalogue repair hook. Demo data must never block normal page requests.
+Loads the production hardening/runtime modules, then activates the explicit
+marketplace/store fixes. Normal page requests never run demo-data repair.
 """
 
 from flask import jsonify
@@ -18,6 +18,12 @@ import app as app_module
 for _before_fn in list(app.before_request_funcs.get(None, [])):
     if getattr(_before_fn, '__name__', '') == '_repair_demo_market_on_request':
         app.before_request_funcs[None].remove(_before_fn)
+
+
+# Activate the dedicated marketplace/store layer. This is intentionally loaded
+# in the production entrypoint so its /market pagination and public seller
+# storefront routes are actually registered in the deployed process.
+import marketfix  # noqa: E402,F401
 
 
 @app.get('/fast-health')
