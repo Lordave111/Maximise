@@ -1,13 +1,11 @@
-"""External Web Push notifications for Merco.
-
-Requires VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_CLAIMS_EMAIL in the environment.
-"""
+"""External Web Push notifications for Merco."""
 import json
 import os
 from datetime import datetime
 
 from flask import jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy import event
 from sitefix import app, db
 
 try:
@@ -29,6 +27,16 @@ class PushSubscription(db.Model):
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class PushJob(db.Model):
+    __tablename__ = 'push_job'
+    id = db.Column(db.Integer, primary_key=True)
+    notification_id = db.Column(db.Integer, nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='pending', index=True)
+    attempts = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = db.Column(db.DateTime, nullable=True)
+
+
 with app.app_context():
     db.create_all()
 
@@ -44,22 +52,10 @@ def push_configured():
 def send_push(subscription, title, message, url='/market', kind='general'):
     if not push_configured():
         return False
-    payload = json.dumps({
-        'title': str(title)[:180],
-        'body': str(message)[:1000],
-        'url': url or '/market',
-        'kind': kind or 'general',
-        'icon': '/static/icons/icon-192.svg',
-        'badge': '/static/icons/icon-192.svg'
-    })
+    payload = json.dumps({'title': str(title)[:180], 'body': str(message)[:1000], 'url': url or '/market', 'kind': kind or 'general', 'icon': '/static/icons/icon-192.svg', 'badge': '/static/icons/icon-192.svg'})
     info = {'endpoint': subscription.endpoint, 'keys': {'p256dh': subscription.p256dh, 'auth': subscription.auth}}
     try:
-        webpush(
-            subscription_info=info,
-            data=payload,
-            vapid_private_key=os.environ['VAPID_PRIVATE_KEY'],
-            vapid_claims={'sub': os.environ['VAPID_CLAIMS_EMAIL']},
-        )
+        webpush(subscription_info=info, data=payload, vapid_private_key=os.environ['VAPID_PRIVATE_KEY'], vapid_claims={'sub': os.environ['VAPID_CLAIMS_EMAIL']})
         return True
     except WebPushException as exc:
         status = getattr(getattr(exc, 'response', None), 'status_code', None)
@@ -77,12 +73,47 @@ def send_push(subscription, title, message, url='/market', kind='general'):
 
 
 def send_push_to_user(user_id, title, message, url='/market', kind='general'):
-    subscriptions = PushSubscription.query.filter_by(user_id=user_id).all()
     sent = 0
-    for subscription in subscriptions:
+    for subscription in PushSubscription.query.filter_by(user_id=user_id).all():
         if send_push(subscription, title, message, url, kind):
             sent += 1
     return sent
+
+
+# Queue each persistent in-site notification for external delivery. The queue is
+# inserted in the same DB transaction, so events cannot be lost between layers.
+try:
+    from notifications import Notification
+
+    @event.listens_for(Notification, 'after_insert')
+    def queue_notification_push(mapper, connection, target):
+        connection.execute(PushJob.__table__.insert().values(notification_id=target.id, status='pending', attempts=0, created_at=datetime.utcnow()))
+except Exception:
+    pass
+
+
+def process_push_queue(limit=20):
+    if not push_configured():
+        return 0
+    from notifications import Notification
+    jobs = PushJob.query.filter_by(status='pending').order_by(PushJob.created_at.asc()).limit(limit).all()
+    processed = 0
+    for job in jobs:
+        job.status = 'processing'
+        job.attempts += 1
+        db.session.commit()
+        notification = db.session.get(Notification, job.notification_id)
+        if not notification:
+            job.status = 'sent'
+            job.processed_at = datetime.utcnow()
+            db.session.commit()
+            continue
+        send_push_to_user(notification.user_id, notification.title, notification.message, notification.action_url or '/market', notification.kind)
+        job.status = 'sent'
+        job.processed_at = datetime.utcnow()
+        db.session.commit()
+        processed += 1
+    return processed
 
 
 @app.get('/api/push/public-key')
@@ -115,8 +146,7 @@ def push_subscribe():
         row.auth = auth
         row.user_agent = request.headers.get('User-Agent', '')[:500]
     else:
-        row = PushSubscription(user_id=current_user.id, endpoint=endpoint, p256dh=p256dh, auth=auth, user_agent=request.headers.get('User-Agent', '')[:500])
-        db.session.add(row)
+        db.session.add(PushSubscription(user_id=current_user.id, endpoint=endpoint, p256dh=p256dh, auth=auth, user_agent=request.headers.get('User-Agent', '')[:500]))
     db.session.commit()
     return jsonify({'ok': True})
 
@@ -132,10 +162,3 @@ def push_unsubscribe():
     deleted = query.delete(synchronize_session=False)
     db.session.commit()
     return jsonify({'ok': True, 'deleted': deleted})
-
-
-def send_push_for_notification(row):
-    """Best-effort external counterpart of an in-site Notification row."""
-    if not row or not row.user_id:
-        return 0
-    return send_push_to_user(row.user_id, row.title, row.message, row.action_url or '/market', row.kind)
