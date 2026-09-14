@@ -260,5 +260,10 @@ app.view_functions['health'] = _demo_health
 # Apply marketplace and contact-aware seller storefront routes.
 import marketfix  # noqa: E402,F401
 
+# Keep the SMTP diagnostics route available even if Render is started with the
+# legacy merco_runtime entrypoint instead of boot_runtime. The import is cached,
+# so boot_runtime importing it again will not register duplicate routes.
+import email_overrides  # noqa: E402,F401
+
 
 application = app
