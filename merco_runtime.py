@@ -112,10 +112,7 @@ app.before_request(safe_seller_activation)
 
 import email_notifications  # noqa: E402,F401
 
-# Email queue delivery used to run synchronously after every request. A slow
-# mail provider could therefore make unrelated pages appear to hang for up to
-# the HTTP timeout. Keep transactional email synchronous, but process queued
-# notification mail in one small background worker instead.
+# Process queued email in a single daemon worker. No request waits for SMTP.
 _EMAIL_WORKER_STOP = threading.Event()
 _EMAIL_WORKER_LOCK = threading.Lock()
 
@@ -136,10 +133,15 @@ def _email_worker_loop():
         _process_queued_emails_background()
 
 
-_EMAIL_WORKER_THREAD = threading.Thread(target=_email_worker_loop, name='merco-email-worker', daemon=True)
-_EMAIL_WORKER_THREAD.start()
+if not app.extensions.get('merco_email_worker_started'):
+    app.extensions['merco_email_worker_started'] = True
+    _EMAIL_WORKER_THREAD = threading.Thread(target=_email_worker_loop, name='merco-email-worker', daemon=True)
+    _EMAIL_WORKER_THREAD.start()
 
 
+# Demo data is intentionally NOT seeded from normal page requests. A marketplace
+# request must never wait for 50 sellers/150 products to be created or repaired.
+# Use the explicit maintenance task/admin flow when demo data needs rebuilding.
 _DEMO_SEED_READY = False
 _DEMO_SEED_READY_AT = 0.0
 _DEMO_SEED_LOCK = threading.Lock()
@@ -192,12 +194,10 @@ def _ensure_demo_listings_live():
 
 
 def _seed_and_repair_demo_data():
-    """Create/repair demo data without blocking application startup."""
+    """Create/repair demo data only when explicitly invoked by maintenance code."""
     global _DEMO_SEED_READY, _DEMO_SEED_READY_AT
-
     if _DEMO_SEED_READY and time.time() - _DEMO_SEED_READY_AT < 300:
         return {'sellers': 50, 'products': 150, 'live_products': 150, 'created': 0, 'repaired': 0, 'cached': True}
-
     with _DEMO_SEED_LOCK:
         if _DEMO_SEED_READY and time.time() - _DEMO_SEED_READY_AT < 300:
             return {'sellers': 50, 'products': 150, 'live_products': 150, 'created': 0, 'repaired': 0, 'cached': True}
@@ -207,27 +207,20 @@ def _seed_and_repair_demo_data():
                 created = demo_seed.seed_demo_data()
                 repaired = _ensure_demo_listings_live()
                 demo_sellers = app_module.User.query.filter(
-                    app_module.User.role == 'seller',
-                    app_module.User.seller_slug.like('merco-demo-store-%'),
+                    app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%')
                 ).count()
                 demo_products = app_module.Product.query.join(
                     app_module.User, app_module.Product.seller_id == app_module.User.id
                 ).filter(
-                    app_module.User.role == 'seller',
-                    app_module.User.seller_slug.like('merco-demo-store-%'),
+                    app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%')
                 ).count()
                 live_products = app_module.Product.query.join(
                     app_module.User, app_module.Product.seller_id == app_module.User.id
                 ).filter(
-                    app_module.User.role == 'seller',
-                    app_module.User.seller_slug.like('merco-demo-store-%'),
-                    app_module.Product.is_sold_out.is_(False),
+                    app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%'),
+                    app_module.Product.is_sold_out.is_(False)
                 ).count()
-                status = {
-                    'sellers': demo_sellers, 'products': demo_products,
-                    'live_products': live_products, 'created': created,
-                    'repaired': repaired,
-                }
+                status = {'sellers': demo_sellers, 'products': demo_products, 'live_products': live_products, 'created': created, 'repaired': repaired}
                 _DEMO_SEED_READY = demo_sellers >= 50 and demo_products >= 150
                 _DEMO_SEED_READY_AT = time.time() if _DEMO_SEED_READY else 0.0
                 app.logger.info('DEMO_SEED_STATUS %s', status)
@@ -238,40 +231,22 @@ def _seed_and_repair_demo_data():
                 app_module.db.session.rollback()
             except Exception:
                 pass
-            return {
-                'sellers': 0, 'products': 0, 'live_products': 0,
-                'created': 0, 'repaired': 0, 'error': str(exc),
-            }
+            return {'sellers': 0, 'products': 0, 'live_products': 0, 'created': 0, 'repaired': 0, 'error': str(exc)}
 
 
-def _repair_demo_market_on_request():
-    # Demo data is only needed by the marketplace/health check. Seeding on the
-    # login page made authentication unnecessarily slow on a cold deployment.
-    if request.path in ('/market', '/health'):
-        _seed_and_repair_demo_data()
-    return None
-
-
-app.before_request(_repair_demo_market_on_request)
+@app.post('/tasks/seed-demo')
+def seed_demo_task():
+    expected = app_module.os.environ.get('CRON_SECRET', '').strip()
+    supplied = request.headers.get('X-Cron-Secret', '') or request.args.get('secret', '')
+    if not expected or supplied != expected:
+        return jsonify({'ok': False}), 401
+    return jsonify(_seed_and_repair_demo_data()), 200
 
 
 def _demo_health():
     try:
-        db = app_module.db
-        db.session.execute(text('SELECT 1'))
-        status = _seed_and_repair_demo_data()
-        response = {
-            'status': 'ok' if 'error' not in status else 'degraded',
-            'service': 'merco',
-            'database': 'ok',
-            'demo_sellers': status.get('sellers', 0),
-            'demo_products': status.get('products', 0),
-            'demo_live_products': status.get('live_products', 0),
-            'demo_seed_error': bool(status.get('error')),
-        }
-        if status.get('error'):
-            response['demo_seed_error_type'] = status['error'].__class__.__name__
-        return jsonify(response), 200
+        app_module.db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ok', 'service': 'merco', 'database': 'ok'}), 200
     except Exception:
         try:
             app_module.db.session.rollback()
@@ -282,8 +257,7 @@ def _demo_health():
 
 app.view_functions['health'] = _demo_health
 
-# Apply the responsive marketplace view and contact-aware seller storefront.
-# This module must be imported after the app routes exist.
+# Apply marketplace and contact-aware seller storefront routes.
 import marketfix  # noqa: E402,F401
 
 
