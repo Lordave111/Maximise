@@ -42,8 +42,8 @@ with app.app_context():
 SMTP_HOST = 'smtp.gmail.com'
 SMTP_PORT = 465
 SMTP_SECURE = True
-SMTP_USER = 'oxbot18@gmail.com'
-SMTP_FROM_EMAIL = 'oxbot18@gmail.com'
+SMTP_USER = 'nwahiridaviduche@gmail.com'
+SMTP_FROM_EMAIL = 'nwahiridaviduche@gmail.com'
 SMTP_FROM_NAME = 'Merco'
 MERCO_PUBLIC_URL = 'https://maximise.onrender.com'
 
