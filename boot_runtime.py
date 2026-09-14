@@ -1,9 +1,4 @@
-"""Safe Render entrypoint for Merco.
-
-The legacy app module references @login_required during import but its import
-list omitted the decorator. Seed the symbol before loading merco_runtime so
-both the legacy runtime and the production fixes can initialize normally.
-"""
+"""Safe production entrypoint for Merco."""
 
 import builtins
 import threading
@@ -15,10 +10,10 @@ builtins.login_required = login_required
 
 from merco_runtime import app  # noqa: E402
 
-# Load the SMTP email integration after the application and production routes
-# are initialized. This installs the verification/transactional email hooks.
+# Load production integrations after the application and marketplace routes.
 import email_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
+import adminfix  # noqa: E402,F401
 
 
 def _email_worker():
