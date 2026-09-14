@@ -1,7 +1,4 @@
-"""Reliable transactional and marketplace email delivery using SMTP.
-
-SMTP credentials are read from environment variables; no mailbox password is stored in source code.
-"""
+"""Reliable transactional and marketplace email delivery using Gmail SMTP."""
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -10,7 +7,7 @@ import os
 import smtplib
 import time
 
-from flask import jsonify, request
+from flask import jsonify, request, url_for
 from sqlalchemy import select, event
 from sqlalchemy.orm.attributes import get_history
 
@@ -40,16 +37,27 @@ with app.app_context():
     db.create_all()
 
 
+# Only the Gmail App Password stays in Render. The stable SMTP details are
+# kept here so the environment configuration stays short.
+SMTP_HOST = 'smtp.gmail.com'
+SMTP_PORT = 465
+SMTP_SECURE = True
+SMTP_USER = (os.environ.get('SMTP_USER') or 'oxbot18@gmail.com').strip()
+SMTP_FROM_EMAIL = (os.environ.get('SMTP_FROM_EMAIL') or SMTP_USER).strip()
+SMTP_FROM_NAME = 'Merco'
+MERCO_PUBLIC_URL = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise.onrender.com').strip().rstrip('/')
+
+
 def _smtp_config():
     return {
-        'host': (os.environ.get('SMTP_HOST') or 'smtp.gmail.com').strip(),
-        'port': int(os.environ.get('SMTP_PORT') or '465'),
-        'secure': (os.environ.get('SMTP_SECURE') or '1').strip().lower() in {'1', 'true', 'yes', 'ssl'},
-        'user': (os.environ.get('SMTP_USER') or '').strip(),
+        'host': SMTP_HOST,
+        'port': SMTP_PORT,
+        'secure': SMTP_SECURE,
+        'user': SMTP_USER,
         'password': os.environ.get('SMTP_PASSWORD') or '',
-        'from_email': (os.environ.get('SMTP_FROM_EMAIL') or os.environ.get('SMTP_USER') or '').strip(),
-        'from_name': (os.environ.get('SMTP_FROM_NAME') or 'Merco').strip(),
-        'public_url': (os.environ.get('MERCO_PUBLIC_URL') or '').strip().rstrip('/'),
+        'from_email': SMTP_FROM_EMAIL,
+        'from_name': SMTP_FROM_NAME,
+        'public_url': MERCO_PUBLIC_URL,
     }
 
 
@@ -67,9 +75,8 @@ def _html_message(message, action_url='', action_text='Open Merco', name=''):
 
 def send_smtp(to_email, subject, message, *, name='', action_url='', action_text='Open Merco', html_body=None):
     cfg = _smtp_config()
-    missing = [key for key in ('host', 'user', 'password', 'from_email') if not cfg[key]]
-    if missing:
-        app.logger.error('SMTP configuration incomplete; missing: %s', ', '.join(missing))
+    if not cfg['password']:
+        app.logger.error('SMTP_PASSWORD is not configured.')
         return False
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject[:180]
@@ -78,18 +85,10 @@ def send_smtp(to_email, subject, message, *, name='', action_url='', action_text
     msg.attach(MIMEText(message[:10000], 'plain', 'utf-8'))
     msg.attach(MIMEText(html_body or _html_message(message, action_url, action_text, name), 'html', 'utf-8'))
     try:
-        if cfg['secure']:
-            with smtplib.SMTP_SSL(cfg['host'], cfg['port'], timeout=20) as server:
-                server.login(cfg['user'], cfg['password'])
-                server.sendmail(cfg['from_email'], [to_email], msg.as_string())
-        else:
-            with smtplib.SMTP(cfg['host'], cfg['port'], timeout=20) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(cfg['user'], cfg['password'])
-                server.sendmail(cfg['from_email'], [to_email], msg.as_string())
-        app.logger.info('SMTP delivered email to %s via %s:%s', to_email, cfg['host'], cfg['port'])
+        with smtplib.SMTP_SSL(cfg['host'], cfg['port'], timeout=10) as server:
+            server.login(cfg['user'], cfg['password'])
+            server.sendmail(cfg['from_email'], [to_email], msg.as_string())
+        app.logger.info('SMTP delivered email to %s', to_email)
         return True
     except (OSError, smtplib.SMTPException) as exc:
         app.logger.error('SMTP delivery failed for %s: %s', to_email, exc)
@@ -104,9 +103,32 @@ def _send_email_smtp(to_email, subject, text_body, html_body=None, template_id=N
     return send_smtp(to_email, subject, text_body, action_url=action_url, action_text=action_text, html_body=html_body)
 
 
-import app as app_module
+app_module = __import__('app')
 app_module.send_merco_email = _send_merco_email_smtp
 app_module.send_email = _send_email_smtp
+
+
+def _queue_verification_email(user):
+    if not user or not user.email:
+        return False
+    try:
+        token = app_module.make_verification_token(user)
+        action_url = url_for('verify_email', token=token, _external=True)
+        queue_email(user.id, 'verification', 'Verify your Merco email',
+                    f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.',
+                    action_url, 'Verify my email', transactional=True)
+        db.session.commit()
+        return True
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not queue verification email')
+        return False
+
+
+# app.py's registration/resend functions resolve this global by name at call
+# time, so replacing the module global makes those paths use SMTP too.
+app_module.send_verification_email = _queue_verification_email
+app_module.__dict__['send_verification_email'] = _queue_verification_email
 
 
 def queue_email(user_id, event_type, subject, message, action_url='', action_text='Open Merco', *, transactional=False):
@@ -151,8 +173,7 @@ def process_email_queue(limit=3):
 def queue_new_product_emails(mapper, connection, target):
     followers = connection.execute(select(social.SellerFollow.buyer_id).where(social.SellerFollow.seller_id == target.seller_id)).all()
     seller_name = connection.execute(select(User.username).where(User.id == target.seller_id)).scalar_one_or_none() or 'A seller'
-    public_url = _smtp_config()['public_url']
-    link = f'{public_url}/product/{target.id}' if public_url else f'/product/{target.id}'
+    link = f'{MERCO_PUBLIC_URL}/product/{target.id}'
     for row in followers:
         queue_email_connection(connection, row[0], 'new_product', f'{seller_name} posted a new product', f'{seller_name} just posted {target.name} on Merco. Take a look while it is fresh.', link, 'View product')
 
@@ -161,18 +182,19 @@ def queue_new_product_emails(mapper, connection, target):
 def queue_new_follower_email(mapper, connection, target):
     buyer_name = connection.execute(select(User.username).where(User.id == target.buyer_id)).scalar_one_or_none() or 'A buyer'
     seller_row = connection.execute(select(User.username, User.seller_slug).where(User.id == target.seller_id)).first()
-    if not seller_row: return
+    if not seller_row:
+        return
     seller_name, slug = seller_row
-    public_url = _smtp_config()['public_url']
-    link = f'{public_url}/seller/{slug}' if public_url and slug else (f'/seller/{slug}' if slug else '/seller')
+    link = f'{MERCO_PUBLIC_URL}/seller/{slug}' if slug else f'{MERCO_PUBLIC_URL}/seller'
     queue_email_connection(connection, target.seller_id, 'new_follower', 'You have a new Merco follower', f'{buyer_name} is now following {seller_name}. Open your seller store to see your followers.', link, 'View my store')
 
 
 @event.listens_for(bootstrap.ListingPayment, 'after_update')
 def queue_payment_success_email(mapper, connection, target):
     history = get_history(target, 'status')
-    if not history.has_changes() or target.status != 'paid': return
-    queue_email_connection(connection, target.seller_id, 'payment_success', 'Your Merco listing is live', f'Payment confirmed. {target.name} has been published/reactivated successfully for {target.duration_hours} hours.', '/seller', 'Open seller dashboard', transactional=True)
+    if not history.has_changes() or target.status != 'paid':
+        return
+    queue_email_connection(connection, target.seller_id, 'payment_success', 'Your Merco listing is live', f'Payment confirmed. {target.name} has been published/reactivated successfully for {target.duration_hours} hours.', f'{MERCO_PUBLIC_URL}/seller', 'Open seller dashboard', transactional=True)
 
 
 @event.listens_for(User, 'after_update')
@@ -180,10 +202,10 @@ def queue_account_lifecycle_emails(mapper, connection, target):
     role_history = get_history(target, 'role')
     verified_history = get_history(target, 'email_verified')
     if role_history.has_changes() and target.role == 'seller' and role_history.deleted and role_history.deleted[0] == 'buyer':
-        link = f'/seller/{target.seller_slug}' if target.seller_slug else '/seller'
+        link = f'{MERCO_PUBLIC_URL}/seller/{target.seller_slug}' if target.seller_slug else f'{MERCO_PUBLIC_URL}/seller'
         queue_email_connection(connection, target.id, 'seller_activated', 'Seller Mode is live on Merco', f'Your seller account is now active, {target.username}. Your storefront is ready for listings.', link, 'Open my store', transactional=True)
     if verified_history.has_changes() and bool(target.email_verified) and verified_history.deleted and not bool(verified_history.deleted[0]):
-        queue_email_connection(connection, target.id, 'welcome', 'Welcome to Merco', f'Welcome to Merco, {target.username}. Your email is verified and your account is ready.', '/market', 'Explore Merco', transactional=True)
+        queue_email_connection(connection, target.id, 'welcome', 'Welcome to Merco', f'Welcome to Merco, {target.username}. Your email is verified and your account is ready.', f'{MERCO_PUBLIC_URL}/market', 'Explore Merco', transactional=True)
 
 
 @app.post('/tasks/process-emails')
