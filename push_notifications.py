@@ -34,8 +34,15 @@ def vapid_public_key():
     return (os.environ.get('VAPID_PUBLIC_KEY') or '').strip()
 
 
+def vapid_subject():
+    value = (os.environ.get('VAPID_CLAIMS_EMAIL') or '').strip()
+    if value and not value.startswith(('mailto:', 'https://', 'http://')):
+        return f'mailto:{value}'
+    return value
+
+
 def push_configured():
-    return bool(webpush and vapid_public_key() and os.environ.get('VAPID_PRIVATE_KEY') and os.environ.get('VAPID_CLAIMS_EMAIL'))
+    return bool(webpush and vapid_public_key() and os.environ.get('VAPID_PRIVATE_KEY') and vapid_subject())
 
 
 def send_push(subscription, title, message, url='/market', kind='general'):
@@ -44,7 +51,7 @@ def send_push(subscription, title, message, url='/market', kind='general'):
     payload = json.dumps({'title': str(title)[:180], 'body': str(message)[:1000], 'url': url or '/market', 'kind': kind or 'general', 'icon': '/static/icons/icon-192.svg', 'badge': '/static/icons/icon-192.svg'})
     info = {'endpoint': subscription.endpoint, 'keys': {'p256dh': subscription.p256dh, 'auth': subscription.auth}}
     try:
-        webpush(subscription_info=info, data=payload, vapid_private_key=os.environ['VAPID_PRIVATE_KEY'], vapid_claims={'sub': os.environ['VAPID_CLAIMS_EMAIL']})
+        webpush(subscription_info=info, data=payload, vapid_private_key=os.environ['VAPID_PRIVATE_KEY'], vapid_claims={'sub': vapid_subject()})
         return True
     except WebPushException as exc:
         status = getattr(getattr(exc, 'response', None), 'status_code', None)
