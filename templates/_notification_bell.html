@@ -1,0 +1,12 @@
+{% if current_user.is_authenticated %}
+<link rel="stylesheet" href="{{ url_for('static', filename='notification-center.css') }}">
+<div class="merco-notification-wrap">
+  <button class="merco-notification-bell" type="button" data-notification-bell aria-label="Notifications" title="Notifications">♢<span class="merco-notification-count" data-notification-count hidden>0</span></button>
+  <div class="merco-notification-menu" data-notification-menu hidden>
+    <div class="merco-notification-menu-head"><span>Notifications</span><a href="{{ url_for('notifications_page') }}">View all</a></div>
+    <div class="merco-notification-list" data-notification-list><div class="merco-notification-empty">Loading…</div></div>
+    <div class="merco-notification-footer"><a href="{{ url_for('notifications_page') }}">Open notification center →</a></div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='notifications.js') }}" defer></script>
+{% endif %}
