@@ -2,7 +2,7 @@
 from datetime import datetime
 from flask import jsonify, render_template, redirect, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import select
+from sqlalchemy import select, event
 from sqlalchemy.orm.attributes import get_history
 
 from sitefix import app, db
@@ -39,7 +39,11 @@ def create_notification(user_id, kind, title, message, action_url='', action_tex
 def create_notification_connection(connection, user_id, kind, title, message, action_url='', action_text='Open'):
     if not user_id:
         return
-    connection.execute(Notification.__table__.insert().values(user_id=user_id, kind=kind, title=title[:180], message=message[:1000], action_url=(action_url or '')[:600], action_text=(action_text or 'Open')[:100], is_read=False, created_at=datetime.utcnow()))
+    connection.execute(Notification.__table__.insert().values(
+        user_id=user_id, kind=kind, title=title[:180], message=message[:1000],
+        action_url=(action_url or '')[:600], action_text=(action_text or 'Open')[:100],
+        is_read=False, created_at=datetime.utcnow()
+    ))
 
 
 @app.get('/api/notifications')
@@ -48,7 +52,9 @@ def notifications_api():
     rows = Notification.query.filter_by(user_id=current_user.id).order_by(Notification.created_at.desc()).limit(30).all()
     unread = Notification.query.filter_by(user_id=current_user.id, is_read=False).count()
     return jsonify({'ok': True, 'unread': unread, 'notifications': [
-        {'id': n.id, 'kind': n.kind, 'title': n.title, 'message': n.message, 'action_url': n.action_url or '', 'action_text': n.action_text or 'Open', 'is_read': bool(n.is_read), 'created_at': n.created_at.isoformat() if n.created_at else ''}
+        {'id': n.id, 'kind': n.kind, 'title': n.title, 'message': n.message,
+         'action_url': n.action_url or '', 'action_text': n.action_text or 'Open',
+         'is_read': bool(n.is_read), 'created_at': n.created_at.isoformat() if n.created_at else ''}
         for n in rows
     ]})
 
@@ -84,12 +90,6 @@ def open_notification(notification_id):
     row.is_read = True
     db.session.commit()
     return redirect(row.action_url or url_for('notifications_page'))
-
-
-@social.SellerFollow.__table__.metadata.info.__class__ if False else (lambda: None)()
-
-# SQLAlchemy event listeners are registered after the model/table exists.
-from sqlalchemy import event
 
 
 @event.listens_for(Product, 'after_insert')
