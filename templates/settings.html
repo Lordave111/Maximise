@@ -20,9 +20,11 @@
   <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)">
     <div class="eyebrow">PHONE NOTIFICATIONS</div>
     <h3>Stay updated like a normal app</h3>
-    <p>Enable phone alerts to receive instant notifications when someone follows your store, when a followed seller publishes a product, and when your listings expire.</p>
+    <p>Enable phone alerts to receive instant notifications when someone follows your store, when a followed seller publishes a product, and when your account has an important marketplace update.</p>
     <button class="btn" type="button" data-merco-push-enable><i class="ri-notification-3-line"></i> Enable phone alerts</button>
-    <small style="display:block;margin-top:10px;color:var(--muted)">Your browser will ask for notification permission. You can change this later in your phone/browser settings.</small>
+    <button class="btn" type="button" data-merco-push-disable hidden><i class="ri-notification-off-line"></i> Disable phone alerts</button>
+    <small data-merco-push-status style="display:block;margin-top:10px;color:var(--muted)">Checking notification status…</small>
+    <small style="display:block;margin-top:6px;color:var(--muted)">Your browser will ask for notification permission. You can change this later in your phone/browser settings.</small>
   </div>
 
   {% if not current_user.email_verified %}
