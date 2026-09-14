@@ -11,6 +11,7 @@ from sqlalchemy import text
 from sitefix import app
 import app as app_module
 import bootstrap
+import uploadfix  # noqa: E402,F401 - real seller upload route
 
 
 def _activate_seller():
