@@ -37,15 +37,15 @@ with app.app_context():
     db.create_all()
 
 
-# Only the Gmail App Password stays in Render. The stable SMTP details are
-# kept here so the environment configuration stays short.
+# Stable Gmail SMTP settings live in the backend. Only the secret App Password
+# needs to be configured in Render.
 SMTP_HOST = 'smtp.gmail.com'
 SMTP_PORT = 465
 SMTP_SECURE = True
-SMTP_USER = (os.environ.get('SMTP_USER') or 'oxbot18@gmail.com').strip()
-SMTP_FROM_EMAIL = (os.environ.get('SMTP_FROM_EMAIL') or SMTP_USER).strip()
+SMTP_USER = 'oxbot18@gmail.com'
+SMTP_FROM_EMAIL = 'oxbot18@gmail.com'
 SMTP_FROM_NAME = 'Merco'
-MERCO_PUBLIC_URL = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise.onrender.com').strip().rstrip('/')
+MERCO_PUBLIC_URL = 'https://maximise.onrender.com'
 
 
 def _smtp_config():
@@ -125,8 +125,6 @@ def _queue_verification_email(user):
         return False
 
 
-# app.py's registration/resend functions resolve this global by name at call
-# time, so replacing the module global makes those paths use SMTP too.
 app_module.send_verification_email = _queue_verification_email
 app_module.__dict__['send_verification_email'] = _queue_verification_email
 
