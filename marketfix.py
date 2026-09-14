@@ -1,6 +1,7 @@
-from flask import render_template, request, url_for
+from flask import render_template, request
+import threading
 
-from app import app, db, Product, Category, User
+from app import app, Product, Category, User
 import bootstrap
 
 
@@ -57,3 +58,38 @@ def fixed_seller_page(seller_slug):
 # seller_page in app.py predates the contact-aware storefront template. Keep
 # the same endpoint but supply the contact object the template expects.
 app.view_functions['seller_page'] = fixed_seller_page
+
+
+# email_notifications registers a synchronous after_request sender. That made
+# unrelated pages wait on the mail provider. Remove that hook and process the
+# queue in one background worker instead.
+try:
+    import email_notifications
+
+    for _after_fn in list(app.after_request_funcs.get(None, [])):
+        if getattr(_after_fn, '__name__', '') == 'process_one_email_after_request':
+            app.after_request_funcs[None].remove(_after_fn)
+
+    _EMAIL_WORKER_LOCK = threading.Lock()
+
+    def _process_email_queue_background():
+        if not _EMAIL_WORKER_LOCK.acquire(blocking=False):
+            return
+        try:
+            email_notifications.process_email_queue(limit=3)
+        except Exception:
+            app.logger.exception('Background email queue processing failed')
+        finally:
+            _EMAIL_WORKER_LOCK.release()
+
+    def _email_worker_loop():
+        stop = threading.Event()
+        app.extensions['merco_email_worker_stop'] = stop
+        while not stop.wait(15):
+            _process_email_queue_background()
+
+    if not app.extensions.get('merco_email_worker_started'):
+        app.extensions['merco_email_worker_started'] = True
+        threading.Thread(target=_email_worker_loop, name='merco-email-worker', daemon=True).start()
+except Exception:
+    app.logger.exception('Could not start background email worker')
