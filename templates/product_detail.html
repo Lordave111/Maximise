@@ -40,6 +40,7 @@
       <button class="btn danger" style="width:100%" disabled>Currently unavailable</button>
     {% elif current_user.is_authenticated and current_user.id != product.seller_id and product.seller.whatsapp_number %}
       <a class="btn" style="width:100%" href="{{ url_for('buy_product',id=product.id) }}"><i class="ri-whatsapp-line"></i> Contact seller</a>
+      <a class="btn ghost" style="width:100%;margin-top:9px" href="https://wa.me/{{ product.seller.whatsapp_number }}?text={{ ('Hi ' ~ product.seller.username ~ ', I found your product "' ~ product.name ~ '" on Merco. Before I buy, please confirm that this WhatsApp account belongs to the Merco seller @' ~ product.seller.seller_slug ~ '.')|urlencode }}"><i class="ri-shield-check-line"></i> Verify seller on WhatsApp</a>
     {% elif current_user.is_authenticated and current_user.id == product.seller_id %}
       <a class="btn" style="width:100%" href="{{ url_for('seller_dashboard') }}"><i class="ri-dashboard-line"></i> Manage this listing</a>
     {% elif current_user.is_authenticated %}
