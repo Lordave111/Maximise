@@ -13,21 +13,26 @@ import email_notifications
 
 
 RESEND_API_URL = "https://api.resend.com/emails"
-RESEND_API_KEY = (os.environ.get("RESEND_API_KEY") or "").strip()
-RESEND_FROM_EMAIL = (
-    os.environ.get("RESEND_FROM_EMAIL")
-    or os.environ.get("SMTP_FROM_EMAIL")
-    or "onboarding@resend.dev"
-).strip()
-RESEND_FROM_NAME = (
-    os.environ.get("RESEND_FROM_NAME")
-    or os.environ.get("SMTP_FROM_NAME")
-    or "Merco"
-).strip()
+
+
+def _resend_config():
+    """Read Resend settings at send time so Railway variable changes take effect after restart."""
+    return {
+        "api_key": (os.environ.get("RESEND_API_KEY") or "").strip(),
+        "from_email": (
+            os.environ.get("RESEND_FROM_EMAIL")
+            or "onboarding@resend.dev"
+        ).strip(),
+        "from_name": (
+            os.environ.get("RESEND_FROM_NAME")
+            or "Merco"
+        ).strip(),
+    }
 
 
 def _resend_send(to_email, subject, message, *, name="", action_url="", action_text="Open Merco", html_body=None):
-    if not RESEND_API_KEY:
+    cfg = _resend_config()
+    if not cfg["api_key"]:
         return email_notifications._smtp_send_original(
             to_email,
             subject,
@@ -39,14 +44,14 @@ def _resend_send(to_email, subject, message, *, name="", action_url="", action_t
         )
 
     if not to_email or "@" not in to_email:
-        email_notifications.app.logger.error("Email API refused invalid recipient: %s", to_email)
+        email_notifications.app.logger.error("Resend refused invalid recipient: %s", to_email)
         return False
 
     body_html = html_body or email_notifications._html_message(
-        message, action_url, action_text, name
+        message, action_url, action_text, name, subject
     )
     payload = {
-        "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+        "from": f"{cfg['from_name']} <{cfg['from_email']}>",
         "to": [to_email],
         "subject": subject[:180],
         "html": body_html,
@@ -57,7 +62,7 @@ def _resend_send(to_email, subject, message, *, name="", action_url="", action_t
         response = requests.post(
             RESEND_API_URL,
             headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Authorization": f"Bearer {cfg['api_key']}",
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -66,17 +71,18 @@ def _resend_send(to_email, subject, message, *, name="", action_url="", action_t
         if 200 <= response.status_code < 300:
             data = response.json() if response.content else {}
             email_notifications.app.logger.info(
-                "Email API delivered email to %s (id=%s)",
+                "Resend accepted email to %s (id=%s, from=%s)",
                 to_email,
                 data.get("id", "unknown"),
+                cfg["from_email"],
             )
             return True
 
-        # Do not log the API key. Resend's response normally contains a useful
-        # validation/authentication message, so keep that in the deployment log.
+        # Never log the API key. Resend's response normally contains the useful
+        # authentication, sender, recipient, quota, or validation reason.
         detail = response.text[:500]
         email_notifications.app.logger.error(
-            "Email API rejected message to %s with HTTP %s: %s",
+            "Resend rejected email to %s with HTTP %s: %s",
             to_email,
             response.status_code,
             detail,
@@ -84,7 +90,7 @@ def _resend_send(to_email, subject, message, *, name="", action_url="", action_t
         return False
     except requests.RequestException as exc:
         email_notifications.app.logger.error(
-            "Email API request failed for %s: %s", to_email, exc
+            "Resend HTTPS request failed for %s: %s", to_email, exc
         )
         return False
 
