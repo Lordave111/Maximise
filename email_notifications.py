@@ -7,7 +7,7 @@ import os
 import smtplib
 import time
 
-from flask import jsonify, request, url_for
+from flask import jsonify, request
 from sqlalchemy import select, event
 from sqlalchemy.orm.attributes import get_history
 
@@ -32,60 +32,49 @@ class EmailJob(db.Model):
     last_error = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
 
-
 with app.app_context():
     db.create_all()
 
-
-# SMTP credentials/config are environment-driven in production. The defaults keep
-# the existing Gmail sender working while allowing Railway to override the provider.
-SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com').strip() or 'smtp.gmail.com'
-SMTP_PORT = int(os.environ.get('SMTP_PORT', '465') or 465)
-SMTP_SECURE = str(os.environ.get('SMTP_SECURE', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
-SMTP_USER = (os.environ.get('SMTP_USER') or 'nwahiridaviduche@gmail.com').strip()
+# Gmail submission over STARTTLS/587 is the default for Railway. Both Gmail
+# submission methods are attempted so a blocked outbound port does not break mail.
+SMTP_HOST = (os.environ.get('SMTP_HOST') or 'smtp.gmail.com').strip() or 'smtp.gmail.com'
+try:
+    SMTP_PORT = int(os.environ.get('SMTP_PORT') or 587)
+except (TypeError, ValueError):
+    SMTP_PORT = 587
+SMTP_SECURE = str(os.environ.get('SMTP_SECURE', 'false')).strip().lower() not in {'0', 'false', 'no', 'off'}
+SMTP_USER = (os.environ.get('SMTP_USER') or os.environ.get('GMAIL_USER') or 'nwahiridaviduche@gmail.com').strip()
 SMTP_FROM_EMAIL = (os.environ.get('SMTP_FROM_EMAIL') or SMTP_USER).strip()
 SMTP_FROM_NAME = (os.environ.get('SMTP_FROM_NAME') or 'Merco').strip()
-MERCO_PUBLIC_URL = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise-production.up.railway.app').strip().rstrip('/')
+MERCO_PUBLIC_URL = 'https://maximise-production.up.railway.app'
 
 
 def _smtp_password():
-    # Google App Passwords are commonly copied with spaces. Removing whitespace
-    # makes pasted App Passwords work while still keeping the secret in the env.
-    return (os.environ.get('SMTP_PASSWORD') or os.environ.get('GMAIL_APP_PASSWORD') or '').replace(' ', '').strip()
+    return (os.environ.get('SMTP_PASSWORD') or os.environ.get('GMAIL_APP_PASSWORD') or os.environ.get('EMAIL_PASSWORD') or '').replace(' ', '').strip()
 
 
 def _smtp_config():
-    return {
-        'host': SMTP_HOST,
-        'port': SMTP_PORT,
-        'secure': SMTP_SECURE,
-        'user': SMTP_USER,
-        'password': _smtp_password(),
-        'from_email': SMTP_FROM_EMAIL,
-        'from_name': SMTP_FROM_NAME,
-        'public_url': MERCO_PUBLIC_URL,
-    }
+    return {'host': SMTP_HOST, 'port': SMTP_PORT, 'secure': SMTP_SECURE, 'user': SMTP_USER,
+            'password': _smtp_password(), 'from_email': SMTP_FROM_EMAIL, 'from_name': SMTP_FROM_NAME,
+            'public_url': MERCO_PUBLIC_URL}
 
 
 def _html_message(message, action_url='', action_text='Open Merco', name=''):
-    paragraphs = ''.join(
-        f'<p style="margin:0 0 14px">{html.escape(line)}</p>'
-        for line in message.split('\n') if line.strip()
-    )
+    paragraphs = ''.join(f'<p style="margin:0 0 14px">{html.escape(line)}</p>' for line in message.split('\n') if line.strip())
     button = ''
     if action_url:
-        safe_url = html.escape(action_url, quote=True)
-        button = f'<p style="margin:24px 0"><a href="{safe_url}" style="display:inline-block;padding:12px 18px;background:#d4af37;color:#050505;text-decoration:none;border-radius:8px;font-weight:700">{html.escape(action_text)}</a></p>'
+        button = f'<p style="margin:24px 0"><a href="{html.escape(action_url, quote=True)}" style="display:inline-block;padding:12px 18px;background:#d4af37;color:#050505;text-decoration:none;border-radius:8px;font-weight:700">{html.escape(action_text)}</a></p>'
     return f'<!doctype html><html><body style="margin:0;background:#070707;color:#f5f1e8;font-family:Arial,sans-serif"><div style="max-width:620px;margin:0 auto;padding:40px 24px"><div style="font-size:13px;letter-spacing:3px;color:#d4af37;font-weight:700">MERCO</div><h1 style="font-size:25px;margin:12px 0 22px">{html.escape(name or "Hello")}</h1><div style="font-size:15px;line-height:1.7;color:#d8d3c8">{paragraphs}</div>{button}<div style="margin-top:30px;border-top:1px solid #2a2a2a;padding-top:16px;font-size:12px;color:#888">Merco marketplace · This is an automated email.</div></div></body></html>'
 
 
 def _send_smtp_once(cfg, to_email, msg):
-    if cfg['secure']:
-        with smtplib.SMTP_SSL(cfg['host'], cfg['port'], timeout=15) as server:
+    if cfg['secure'] or cfg['port'] == 465:
+        with smtplib.SMTP_SSL(cfg['host'], cfg['port'], timeout=20) as server:
+            server.ehlo()
             server.login(cfg['user'], cfg['password'])
             server.sendmail(cfg['from_email'], [to_email], msg.as_string())
     else:
-        with smtplib.SMTP(cfg['host'], cfg['port'], timeout=15) as server:
+        with smtplib.SMTP(cfg['host'], cfg['port'], timeout=20) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
@@ -96,12 +85,11 @@ def _send_smtp_once(cfg, to_email, msg):
 def send_smtp(to_email, subject, message, *, name='', action_url='', action_text='Open Merco', html_body=None):
     cfg = _smtp_config()
     if not cfg['password']:
-        app.logger.error('SMTP password is not configured (set SMTP_PASSWORD or GMAIL_APP_PASSWORD).')
+        app.logger.error('SMTP password is not configured. Set SMTP_PASSWORD, GMAIL_APP_PASSWORD, or EMAIL_PASSWORD.')
         return False
     if not to_email or '@' not in to_email:
         app.logger.error('SMTP refused invalid recipient: %s', to_email)
         return False
-
     msg = MIMEMultipart('alternative')
     msg['Subject'] = subject[:180]
     msg['From'] = f'{cfg["from_name"]} <{cfg["from_email"]}>'
@@ -109,30 +97,26 @@ def send_smtp(to_email, subject, message, *, name='', action_url='', action_text
     msg.attach(MIMEText(message[:10000], 'plain', 'utf-8'))
     msg.attach(MIMEText(html_body or _html_message(message, action_url, action_text, name), 'html', 'utf-8'))
 
-    try:
-        _send_smtp_once(cfg, to_email, msg)
-        app.logger.info('SMTP delivered email to %s', to_email)
-        return True
-    except smtplib.SMTPAuthenticationError as exc:
-        app.logger.error('SMTP authentication failed for %s: %s', cfg['user'], exc)
-        return False
-    except (OSError, smtplib.SMTPException) as exc:
-        alternate = dict(cfg)
-        if cfg['host'].lower() == 'smtp.gmail.com' and cfg['port'] in {465, 587}:
-            alternate['port'] = 587 if cfg['port'] == 465 else 465
-            alternate['secure'] = alternate['port'] == 465
-            try:
-                _send_smtp_once(alternate, to_email, msg)
-                app.logger.info('SMTP delivered email to %s using fallback port %s', to_email, alternate['port'])
-                return True
-            except smtplib.SMTPAuthenticationError as auth_exc:
-                app.logger.error('SMTP authentication failed on fallback for %s: %s', cfg['user'], auth_exc)
-                return False
-            except (OSError, smtplib.SMTPException) as fallback_exc:
-                app.logger.error('SMTP delivery failed for %s on primary/fallback: %s / %s', to_email, exc, fallback_exc)
-                return False
-        app.logger.error('SMTP delivery failed for %s: %s', to_email, exc)
-        return False
+    attempts = [dict(cfg)]
+    if cfg['host'].lower() == 'smtp.gmail.com':
+        if cfg['port'] == 587:
+            attempts.append({**cfg, 'port': 465, 'secure': True})
+        elif cfg['port'] == 465:
+            attempts.append({**cfg, 'port': 587, 'secure': False})
+    last_error = None
+    for attempt in attempts:
+        try:
+            _send_smtp_once(attempt, to_email, msg)
+            app.logger.info('SMTP delivered email to %s using %s:%s', to_email, attempt['host'], attempt['port'])
+            return True
+        except smtplib.SMTPAuthenticationError as exc:
+            app.logger.error('SMTP authentication failed for %s on %s:%s: %s', attempt['user'], attempt['host'], attempt['port'], exc)
+            return False
+        except (OSError, smtplib.SMTPException) as exc:
+            last_error = exc
+            app.logger.warning('SMTP attempt failed for %s on %s:%s: %s', to_email, attempt['host'], attempt['port'], exc)
+    app.logger.error('SMTP delivery failed for %s after all Gmail attempts: %s', to_email, last_error)
+    return False
 
 
 def _send_merco_email_smtp(user, subject, message, action_url='', action_text='Open Merco', template_id=None):
@@ -141,7 +125,6 @@ def _send_merco_email_smtp(user, subject, message, action_url='', action_text='O
 
 def _send_email_smtp(to_email, subject, text_body, html_body=None, template_id=None, action_url='', action_text='Open Merco'):
     return send_smtp(to_email, subject, text_body, action_url=action_url, action_text=action_text, html_body=html_body)
-
 
 app_module = __import__('app')
 app_module.send_merco_email = _send_merco_email_smtp
@@ -153,9 +136,6 @@ def _queue_verification_email(user):
         return False
     try:
         token = app_module.make_verification_token(user)
-        # Do not use Flask's _external URL here: production proxy/request hosts
-        # can still point at the old Render deployment. Always use the configured
-        # Merco public URL so verification emails point to Railway.
         action_url = f'{MERCO_PUBLIC_URL}/verify-email/{token}'
         queue_email(user.id, 'verification', 'Verify your Merco email',
                     f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.',
@@ -166,7 +146,6 @@ def _queue_verification_email(user):
         db.session.rollback()
         app.logger.exception('Could not queue verification email')
         return False
-
 
 app_module.send_verification_email = _queue_verification_email
 app_module.__dict__['send_verification_email'] = _queue_verification_email
@@ -191,7 +170,7 @@ def queue_email_connection(connection, user_id, event_type, subject, message, ac
 def process_email_queue(limit=3):
     sent = failed = 0
     with app.app_context():
-        jobs = (EmailJob.query.filter(EmailJob.status == 'pending', EmailJob.available_at <= datetime.utcnow()).order_by(EmailJob.id.asc()).limit(max(1, min(int(limit), 10))).all())
+        jobs = EmailJob.query.filter(EmailJob.status == 'pending', EmailJob.available_at <= datetime.utcnow()).order_by(EmailJob.id.asc()).limit(max(1, min(int(limit), 10))).all()
         for index, job in enumerate(jobs):
             user = db.session.get(User, job.user_id)
             if not user or not user.email:
@@ -206,7 +185,8 @@ def process_email_queue(limit=3):
             except Exception as exc:
                 job.status = 'pending' if job.attempts < 4 else 'failed'; job.available_at = datetime.utcnow() + timedelta(minutes=min(30, 2 ** job.attempts)); job.last_error = str(exc)[:500]; failed += 1
             db.session.commit()
-            if index < len(jobs) - 1: time.sleep(0.2)
+            if index < len(jobs) - 1:
+                time.sleep(0.2)
     return sent, failed
 
 
