@@ -4,6 +4,7 @@ import builtins
 import threading
 import time
 
+from flask import jsonify
 from flask_login import login_required
 
 builtins.login_required = login_required
@@ -17,6 +18,12 @@ import push_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
+
+
+@app.get('/health')
+def merco_health():
+    """Lightweight Railway health endpoint that does not depend on the database."""
+    return jsonify({'status': 'ok', 'service': 'merco'}), 200
 
 
 def _email_worker():
