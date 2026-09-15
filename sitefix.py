@@ -11,7 +11,7 @@ import uuid
 from datetime import timedelta, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
-from flask import Response, abort, send_from_directory, flash, redirect, render_template, request, url_for
+from flask import Response, abort, send_from_directory, flash, redirect, render_template, request, url_for, jsonify
 from flask_login import login_user as _flask_login_user, current_user, login_required
 from PIL import Image, ImageOps
 from sqlalchemy import event, inspect, text
@@ -28,6 +28,19 @@ import bootstrap
 for _before_fn in list(app.before_request_funcs.get(None, [])):
     if getattr(_before_fn, '__name__', '') == 'marketplace_payment_layer':
         app.before_request_funcs[None].remove(_before_fn)
+
+# Keep Railway's liveness probe independent of MySQL/Aiven. The main app has a
+# database-aware /health route which can correctly report degraded DB status,
+# but a platform liveness probe must answer even while the database is warming
+# up or temporarily unavailable.
+@app.get('/health/ready', endpoint='railway_health')
+def railway_health():
+    return jsonify({'status': 'ok', 'service': 'merco'}), 200
+
+# The original app /health endpoint returns 503 when the database is down.
+# Railway should use the lightweight /health/ready endpoint above instead.
+# Keep /health available for diagnostics without changing its application
+# semantics.
 
 # Current marketplace pricing: 12h = 10%, 24h = 20%.
 def _listing_fee(price, hours):
@@ -67,17 +80,23 @@ class UploadedAsset(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
 
 
-with app.app_context():
-    db.create_all()
-    inspector = inspect(db.engine)
-    if 'seller_contact' in inspector.get_table_names():
-        columns = {c['name'] for c in inspector.get_columns('seller_contact')}
-        if 'free_listing_used' not in columns:
-            dialect = db.engine.dialect.name
-            definition = 'BOOLEAN DEFAULT FALSE' if dialect != 'sqlite' else 'INTEGER DEFAULT 0'
-            quoted = db.engine.dialect.identifier_preparer.quote('seller_contact')
-            with db.engine.begin() as conn:
-                conn.execute(text(f'ALTER TABLE {quoted} ADD COLUMN free_listing_used {definition}'))
+# Database migrations are useful but must not prevent the web process from
+# starting. Aiven/network hiccups should leave the service alive so Railway can
+# probe it and the application can retry database work on the next request.
+try:
+    with app.app_context():
+        db.create_all()
+        inspector = inspect(db.engine)
+        if 'seller_contact' in inspector.get_table_names():
+            columns = {c['name'] for c in inspector.get_columns('seller_contact')}
+            if 'free_listing_used' not in columns:
+                dialect = db.engine.dialect.name
+                definition = 'BOOLEAN DEFAULT FALSE' if dialect != 'sqlite' else 'INTEGER DEFAULT 0'
+                quoted = db.engine.dialect.identifier_preparer.quote('seller_contact')
+                with db.engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {quoted} ADD COLUMN free_listing_used {definition}'))
+except Exception:
+    app.logger.exception('Production database initialization deferred; web service will still start.')
 
 
 @event.listens_for(Session, 'before_flush')
