@@ -39,7 +39,12 @@ def _render_form(contact, first_listing_free, categories=None):
     )
 
 
-@app.route('/seller/add', methods=['GET', 'POST'], endpoint='add_product')
+# app.py already contains the legacy /seller/add rule with endpoint
+# ``add_product``. Register this replacement under a temporary unique endpoint
+# so Flask does not raise an AssertionError while importing the production
+# wrapper. We then replace the endpoint's view function below, preserving all
+# existing url_for('add_product') calls and templates.
+@app.route('/seller/add', methods=['GET', 'POST'], endpoint='production_add_product')
 @login_required
 def add_product():
     if current_user.role != 'seller':
@@ -186,3 +191,10 @@ def add_product():
         app.logger.exception('Seller product upload failed')
         flash('The product could not be uploaded. Please check the images and try again.')
         return _render_form(contact, not free_used, categories)
+
+
+# Replace the legacy endpoint's dispatch target without trying to register the
+# same endpoint twice. The URL rule already exists in app.py, and Flask keeps
+# url_for('add_product') working while dispatching that rule to this production
+# implementation.
+app.view_functions['add_product'] = add_product
