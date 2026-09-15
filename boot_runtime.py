@@ -20,6 +20,7 @@ app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
 # Load production integrations after the application and marketplace routes.
 import email_notifications  # noqa: E402,F401
+import email_api  # noqa: E402,F401
 import notifications  # noqa: E402,F401
 import push_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
