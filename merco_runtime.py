@@ -127,7 +127,7 @@ def _verify_seller_whatsapp(token):
         if current_user.is_authenticated and current_user.id == user.id:
             flash('Your seller account is verified and your store is now active.')
             return redirect(url_for('dashboard'))
-        return render_template('seller_verification_success.html', seller=user)
+        return redirect(url_for('seller_page', seller_slug=user.seller_slug))
     except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
         flash('That seller verification link is invalid or has expired. Please start Seller Mode again.')
         return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
