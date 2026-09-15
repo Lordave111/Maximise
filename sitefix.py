@@ -1,12 +1,11 @@
 """Production hardening layer for Merco.
 
-Render starts this module. It loads the payment-aware Flask routes, then uses
-persistent database-backed image storage so seller uploads survive restarts and
-redeploys on an ephemeral web service.
+Railway production hardening and persistent marketplace storage.
 """
 
 import base64
 import io
+import os
 import uuid
 from datetime import timedelta, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -20,6 +19,12 @@ from sqlalchemy.orm import Session
 
 from app import app, db, Product
 import bootstrap
+
+# Merco is hosted on Railway. Force the canonical public URL at runtime so
+# legacy deployment variables cannot make generated emails point elsewhere.
+MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
+os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
+app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
 # bootstrap has a legacy storefront catch-all before_request. It sees
 # /seller/followers and /seller/insights as storefront slugs and returns a 404
@@ -106,9 +111,6 @@ def protect_marketplace_deletes(session, flush_context, instances):
     contact_model = bootstrap.SellerContact
     social_module = __import__('social')
     follow_model = social_module.SellerFollow
-    # Notification was removed when Merco moved to email-only notifications.
-    # Do not dereference a class that no longer exists: this listener also runs
-    # during normal INSERT flushes, including demo-data seeding.
     notification_model = getattr(social_module, 'Notification', None)
 
     deleted_products = [obj for obj in session.deleted if isinstance(obj, Product)]
