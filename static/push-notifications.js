@@ -22,7 +22,8 @@
 
   async function getRegistration() {
     if (!('serviceWorker' in navigator)) throw new Error('This browser does not support service workers.');
-    await navigator.serviceWorker.register('/static/sw.js');
+    // The root worker has / scope, so it can control the whole Merco app.
+    await navigator.serviceWorker.register('/sw.js', {scope: '/'});
     return navigator.serviceWorker.ready;
   }
 
