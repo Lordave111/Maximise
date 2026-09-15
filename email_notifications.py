@@ -153,7 +153,10 @@ def _queue_verification_email(user):
         return False
     try:
         token = app_module.make_verification_token(user)
-        action_url = url_for('verify_email', token=token, _external=True)
+        # Do not use Flask's _external URL here: production proxy/request hosts
+        # can still point at the old Render deployment. Always use the configured
+        # Merco public URL so verification emails point to Railway.
+        action_url = f'{MERCO_PUBLIC_URL}/verify-email/{token}'
         queue_email(user.id, 'verification', 'Verify your Merco email',
                     f'Hi {user.username},\n\nYour Merco account is almost ready. Verify your email to unlock Seller Mode.\n\nThis verification link expires in 24 hours.',
                     action_url, 'Verify my email', transactional=True)
