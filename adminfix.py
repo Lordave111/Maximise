@@ -35,7 +35,6 @@ def _ensure_suspension_column():
 
 _ensure_suspension_column()
 
-# Add the ORM attribute after the migration so existing User objects can use it.
 if not hasattr(User, 'suspended_until'):
     User.suspended_until = db.Column(db.DateTime, nullable=True)
 
@@ -45,7 +44,6 @@ def _is_suspended(user):
     if not until:
         return False
     if until <= datetime.utcnow():
-        # Expired suspensions are cleared automatically.
         user.suspended_until = None
         try:
             db.session.commit()
@@ -202,12 +200,44 @@ def admin_delete_user_safe(id):
     if user.role == 'admin':
         flash('Admin accounts are protected from deletion in this panel.')
         return redirect(url_for('admin_dashboard'))
+
     try:
-        # Product files are cleaned up before the relationship is deleted.
+        # Clean uploaded files first; the DB transaction below remains the
+        # source of truth for the account deletion.
         delete_files = getattr(app_module, 'delete_product_files', None)
         for product in list(user.products):
             if delete_files:
-                delete_files(product)
+                try:
+                    delete_files(product)
+                except Exception:
+                    app.logger.exception('Could not remove files for product %s', product.id)
+
+        # Several optional marketplace modules have user foreign keys without
+        # ORM relationships. Delete those rows explicitly so MySQL/Postgres
+        # foreign-key constraints cannot block account removal.
+        related_tables = (
+            'push_subscription', 'email_job', 'notification',
+            'seller_follow', 'product_view', 'seller_contact',
+            'listing_placement', 'listing_payment',
+        )
+        dialect = db.engine.dialect
+        preparer = dialect.identifier_preparer
+        user_table = preparer.quote('user')
+        for table in related_tables:
+            try:
+                columns = {c['name'] for c in inspect(db.engine).get_columns(table)}
+            except Exception:
+                continue
+            if 'user_id' in columns:
+                db.session.execute(text(f'DELETE FROM {preparer.quote(table)} WHERE user_id = :uid'), {'uid': user.id})
+            if table == 'seller_follow' and 'buyer_id' in columns:
+                db.session.execute(text(f'DELETE FROM {preparer.quote(table)} WHERE buyer_id = :uid OR seller_id = :uid'), {'uid': user.id})
+            elif table == 'product_view' and 'viewer_id' in columns:
+                db.session.execute(text(f'DELETE FROM {preparer.quote(table)} WHERE viewer_id = :uid'), {'uid': user.id})
+            elif table in {'seller_contact', 'listing_placement', 'listing_payment'} and 'seller_id' in columns:
+                db.session.execute(text(f'DELETE FROM {preparer.quote(table)} WHERE seller_id = :uid'), {'uid': user.id})
+
+        # Product rows are cascade/delete-orphan children of User.
         db.session.delete(user)
         db.session.commit()
         flash(f'{user.username} was permanently deleted.')
@@ -218,5 +248,4 @@ def admin_delete_user_safe(id):
     return redirect(url_for('admin_dashboard'))
 
 
-# Override the legacy admin dashboard with the DB-backed management dashboard.
 app.view_functions['admin_dashboard'] = _admin_dashboard
