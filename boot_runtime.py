@@ -1,15 +1,22 @@
 """Safe production entrypoint for Merco."""
 
 import builtins
+import os
 import threading
 import time
 
-from flask import jsonify
+from flask import jsonify, session
 from flask_login import login_required
 
 builtins.login_required = login_required
 
 from merco_runtime import app  # noqa: E402
+
+# Railway is the only supported production origin. Set this before importing
+# email modules so no inherited deployment variable can produce another host.
+MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
+os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
+app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
 # Load production integrations after the application and marketplace routes.
 import email_notifications  # noqa: E402,F401
@@ -18,6 +25,21 @@ import push_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
+
+# The legacy resend route can still contain an old deployment name in its
+# failure flash message. Keep the existing route behavior but sanitize that
+# user-visible message so the production UI only references Railway.
+_original_resend_verification = app.view_functions.get('resend_verification')
+if _original_resend_verification:
+    def _railway_resend_verification():
+        response = _original_resend_verification()
+        flashes = session.get('_flashes', [])
+        session['_flashes'] = [
+            (category, str(message).replace('Render', 'Railway'))
+            for category, message in flashes
+        ]
+        return response
+    app.view_functions['resend_verification'] = _railway_resend_verification
 
 
 @app.get('/health')
