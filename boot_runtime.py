@@ -18,12 +18,17 @@ MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
 os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
-# Load production integrations after the application and marketplace routes.
-import email_notifications  # noqa: E402,F401
-import email_api  # noqa: E402,F401
+# Flask-SQLAlchemy requires an application context for database-backed module
+# initialization. Import all email integrations while the app context is active
+# so startup cannot raise "Working outside of application context".
+with app.app_context():
+    import email_notifications  # noqa: E402,F401
+    import email_api  # noqa: E402,F401
+    import email_overrides  # noqa: E402,F401
+
+# The remaining integrations do not need the database application context.
 import notifications  # noqa: E402,F401
 import push_notifications  # noqa: E402,F401
-import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
 import swfix  # noqa: E402,F401
