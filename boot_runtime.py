@@ -25,6 +25,7 @@ import push_notifications  # noqa: E402,F401
 import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
+import swfix  # noqa: E402,F401
 
 # Cancel any verification messages that were queued by an older deployment.
 # Otherwise the background worker can still deliver a stale verification link
