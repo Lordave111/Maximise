@@ -38,15 +38,14 @@ with app.app_context():
 
 
 # SMTP credentials/config are environment-driven in production. The defaults keep
-# the existing Gmail sender working while allowing Railway/Render to override the
-# provider without changing code.
+# the existing Gmail sender working while allowing Railway to override the provider.
 SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com').strip() or 'smtp.gmail.com'
 SMTP_PORT = int(os.environ.get('SMTP_PORT', '465') or 465)
 SMTP_SECURE = str(os.environ.get('SMTP_SECURE', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
 SMTP_USER = (os.environ.get('SMTP_USER') or 'nwahiridaviduche@gmail.com').strip()
 SMTP_FROM_EMAIL = (os.environ.get('SMTP_FROM_EMAIL') or SMTP_USER).strip()
 SMTP_FROM_NAME = (os.environ.get('SMTP_FROM_NAME') or 'Merco').strip()
-MERCO_PUBLIC_URL = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise.onrender.com').strip().rstrip('/')
+MERCO_PUBLIC_URL = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise-production.up.railway.app').strip().rstrip('/')
 
 
 def _smtp_password():
@@ -118,10 +117,6 @@ def send_smtp(to_email, subject, message, *, name='', action_url='', action_text
         app.logger.error('SMTP authentication failed for %s: %s', cfg['user'], exc)
         return False
     except (OSError, smtplib.SMTPException) as exc:
-        # Gmail supports both implicit TLS on 465 and STARTTLS on 587. If the
-        # configured secure connection cannot be established, retry once using
-        # the other standard Gmail port. This helps hosts where one outbound
-        # SMTP port is restricted.
         alternate = dict(cfg)
         if cfg['host'].lower() == 'smtp.gmail.com' and cfg['port'] in {465, 587}:
             alternate['port'] = 587 if cfg['port'] == 465 else 465
