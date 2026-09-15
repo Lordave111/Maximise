@@ -3,48 +3,34 @@
 {% block content %}
 <div class="form-card">
   <div class="eyebrow">ACCOUNT SETTINGS</div><h1>Make Merco yours.</h1><p>Keep your identity and buyer contact details polished. Seller contact details are displayed publicly when you activate Seller Mode.</p>
-  <form method="post"><input type="hidden" name="action" value="profile"><label class="label">Display name</label><input name="username" value="{{ current_user.username }}" required><div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email }}" required></div><div><label class="label">Phone for calls</label><input name="phone_number" type="tel" value="{{ contact.phone_number }}" placeholder="080... or +234..."></div></div><label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="e.g. 2348012345678"><button class="btn">Save profile <i class="ri-save-line"></i></button></form>
+  <form method="post"><input type="hidden" name="action" value="profile"><label class="label">Display name</label><input name="username" value="{{ current_user.username }}" required><div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required></div><div><label class="label">Phone for calls</label><input name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}" placeholder="080... or +234..."></div></div><label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="e.g. 2348012345678"><button class="btn">Save profile <i class="ri-save-line"></i></button></form>
 
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
   <div class="eyebrow">DISPLAY & NOTIFICATIONS</div>
-  <h2>Language, currency & notifications</h2>
-  <p>Merco can automatically use your device region, or you can choose your preferences yourself.</p>
-  <form method="post" class="two-col" style="margin-top:18px">
-    <input type="hidden" name="action" value="preferences">
-    <div><label class="label">Language</label><select name="language"><option value="auto" {% if current_user.preferred_language == 'auto' %}selected{% endif %}>Auto — device region</option>{% for code,name in supported_languages.items() %}<option value="{{ code }}" {% if current_user.preferred_language == code %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
-    <div><label class="label">Currency</label><select name="currency">{% for code,name in supported_currencies.items() %}<option value="{{ code }}" {% if current_user.preferred_currency == code %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
-    <label style="display:flex;align-items:center;gap:10px;grid-column:1/-1"><input type="checkbox" name="email_notifications" value="1" {% if current_user.email_notifications %}checked{% endif %}> Receive Merco email notifications</label>
-    <button class="btn" type="submit"><i class="ri-save-3-line"></i> Save preferences</button>
-  </form>
+  <h2>Language, currency & notifications</h2><p>Merco can automatically use your device region, or you can choose your preferences yourself.</p>
+  <form method="post" class="two-col" style="margin-top:18px"><input type="hidden" name="action" value="preferences"><div><label class="label">Language</label><select name="language"><option value="auto" {% if current_user.preferred_language == 'auto' %}selected{% endif %}>Auto — device region</option>{% for code,name in supported_languages.items() %}<option value="{{ code }}" {% if current_user.preferred_language == code %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div><div><label class="label">Currency</label><select name="currency">{% for code,name in supported_currencies.items() %}<option value="{{ code }}" {% if current_user.preferred_currency == code %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div><label style="display:flex;align-items:center;gap:10px;grid-column:1/-1"><input type="checkbox" name="email_notifications" value="1" {% if current_user.email_notifications %}checked{% endif %}> Receive Merco email notifications</label><button class="btn" type="submit"><i class="ri-save-3-line"></i> Save preferences</button></form>
 
-  <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)">
-    <div class="eyebrow">PHONE NOTIFICATIONS</div>
-    <h3>Stay updated like a normal app</h3>
-    <p>Enable phone alerts to receive instant notifications when someone follows your store, when a followed seller publishes a product, and when your account has an important marketplace update.</p>
-    <button class="btn" type="button" data-merco-push-enable><i class="ri-notification-3-line"></i> Enable phone alerts</button>
-    <button class="btn" type="button" data-merco-push-disable hidden><i class="ri-notification-off-line"></i> Disable phone alerts</button>
-    <small data-merco-push-status style="display:block;margin-top:10px;color:var(--muted)">Checking notification status…</small>
-    <small style="display:block;margin-top:6px;color:var(--muted)">Your browser will ask for notification permission. You can change this later in your phone/browser settings.</small>
-  </div>
+  <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)"><div class="eyebrow">PHONE NOTIFICATIONS</div><h3>Stay updated like a normal app</h3><p>Enable phone alerts to receive instant notifications when someone follows your store, when a followed seller publishes a product, and when your account has an important marketplace update.</p><button class="btn" type="button" data-merco-push-enable><i class="ri-notification-3-line"></i> Enable phone alerts</button><button class="btn" type="button" data-merco-push-disable hidden><i class="ri-notification-off-line"></i> Disable phone alerts</button><small data-merco-push-status style="display:block;margin-top:10px;color:var(--muted)">Checking notification status…</small><small style="display:block;margin-top:6px;color:var(--muted)">Your browser will ask for notification permission. You can change this later in your phone/browser settings.</small></div>
 
-  {% if not current_user.email_verified %}
-  <div class="panel" style="margin-top:24px;border-color:rgba(244,200,79,.35)"><div class="eyebrow">EMAIL VERIFICATION</div><h3>Your email is not verified</h3><p>Verify <strong>{{ current_user.email }}</strong> before opening a seller storefront.</p><a class="btn" href="{{ url_for('verify_email_notice') }}"><i class="ri-mail-check-line"></i> Verify email</a></div>
-  {% else %}
-  <div class="panel" style="margin-top:24px"><div class="eyebrow">EMAIL VERIFIED</div><p><i class="ri-checkbox-circle-line"></i> {{ current_user.email }} is verified.</p></div>
-  {% endif %}
+  {% if current_user.email_verified %}<div class="panel" style="margin-top:24px"><div class="eyebrow">EMAIL VERIFIED</div><p><i class="ri-checkbox-circle-line"></i> {{ current_user.email }} is verified.</p></div>{% endif %}
 
   {% if current_user.role=='buyer' %}
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
-  <div class="eyebrow">SELLER MODE</div><h2>Open your storefront</h2><p>Choose a public seller name and add the contact details buyers can use to call, email or message you.</p>
-  <form method="post" action="{{ url_for('settings') }}" data-merco-loading>
-    <input type="hidden" name="action" value="become_seller">
-    <label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required>
-    <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email }}" required></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="{{ contact.phone_number }}" required></div></div>
-    <label class="label">WhatsApp for buyers</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="234..." required>
-    <button class="btn" type="submit"><i class="ri-store-2-line"></i> Become a seller</button>
-  </form>
+  <div class="eyebrow">SELLER MODE</div><h2>Open your storefront</h2>
+  {% if current_user.seller_verification_status == 'pending' %}
+    <div class="panel" style="margin-top:18px;border-color:rgba(37,211,102,.35);background:linear-gradient(135deg,rgba(37,211,102,.08),rgba(7,7,6,.65))"><div style="display:flex;gap:14px;align-items:flex-start"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(37,211,102,.12);color:#25d366;font-size:24px"><i class="ri-whatsapp-line"></i></div><div><div class="eyebrow" style="color:#25d366">VERIFICATION IN PROGRESS</div><h3 style="margin:5px 0 8px">Your WhatsApp verification is waiting</h3><p style="margin:0">Send the prepared message to Merco Support on WhatsApp. A Merco admin will confirm that the account and WhatsApp number belong to you, then approve your seller account.</p></div></div><form method="post" style="margin-top:18px"><input type="hidden" name="action" value="become_seller"><input type="hidden" name="seller_name" value="{{ current_user.pending_seller_name or current_user.username }}"><input type="hidden" name="contact_email" value="{{ current_user.pending_seller_email or current_user.email }}"><input type="hidden" name="phone_number" value="{{ current_user.pending_seller_phone or '' }}"><input type="hidden" name="whatsapp" value="{{ current_user.pending_seller_whatsapp or current_user.whatsapp_number or '' }}"><button class="btn" type="submit"><i class="ri-whatsapp-line"></i> Open WhatsApp again</button></form></div>
   {% else %}
-  <div class="panel" style="margin-top:28px"><div class="eyebrow">SELLER ACTIVE</div><h2>Your store is live</h2><p>Public link: <strong>/seller/{{ current_user.seller_slug }}</strong></p><div class="two-col" style="margin-top:18px"><div><small>Public email</small><strong>{{ contact.public_email }}</strong></div><div><small>Phone</small><strong>{{ contact.phone_number or 'Not set' }}</strong></div></div><a class="btn" style="margin-top:18px" href="{{ url_for('seller_page',seller_slug=current_user.seller_slug) }}">View my store <i class="ri-external-link-line"></i></a></div>
+    <p>Seller Mode uses a quick WhatsApp identity check instead of email verification. Enter your details, then chat with Merco Support; your store opens only after a Merco admin approves the verification.</p>
+    <form method="post" action="{{ url_for('settings') }}" data-merco-loading>
+      <input type="hidden" name="action" value="become_seller"><label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required>
+      <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}" required></div></div>
+      <label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="2348012345678" required>
+      <button class="btn" type="submit"><i class="ri-whatsapp-line"></i> Verify on WhatsApp & open store</button>
+    </form>
+    <small style="display:block;margin-top:12px;color:var(--muted)"><i class="ri-shield-check-line"></i> Your store will not go live until Merco confirms your WhatsApp/account.</small>
+  {% endif %}
+  {% else %}
+  <div class="panel" style="margin-top:28px"><div class="eyebrow">SELLER VERIFIED</div><h2>Your store is live</h2><p><i class="ri-checkbox-circle-line"></i> Your seller account was verified through WhatsApp.</p><p>Public link: <strong>/seller/{{ current_user.seller_slug }}</strong></p><div class="two-col" style="margin-top:18px"><div><small>Public email</small><strong>{{ contact.public_email if contact else current_user.email }}</strong></div><div><small>Phone</small><strong>{{ contact.phone_number if contact else 'Not set' }}</strong></div></div><a class="btn" style="margin-top:18px" href="{{ url_for('seller_page',seller_slug=current_user.seller_slug) }}">View my store <i class="ri-external-link-line"></i></a></div>
   {% endif %}
 </div>
 {% endblock %}
