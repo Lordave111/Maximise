@@ -26,6 +26,22 @@ import email_overrides  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
 
+# Cancel any verification messages that were queued by an older deployment.
+# Otherwise the background worker can still deliver a stale verification link
+# even after the application has been moved completely to Railway.
+try:
+    with app.app_context():
+        stale_jobs = email_notifications.EmailJob.query.filter(
+            email_notifications.EmailJob.event_type == 'verification',
+            email_notifications.EmailJob.status.in_(['pending', 'sending'])
+        ).all()
+        for stale_job in stale_jobs:
+            stale_job.status = 'cancelled'
+        if stale_jobs:
+            email_notifications.db.session.commit()
+except Exception:
+    app.logger.exception('Could not clear stale verification email jobs during startup.')
+
 # The legacy resend route can still contain an old deployment name in its
 # failure flash message. Keep the existing route behavior but sanitize that
 # user-visible message so the production UI only references Railway.
