@@ -16,9 +16,30 @@ import app as app_module
 import bootstrap
 import uploadfix  # noqa: E402,F401 - real seller upload route
 
+SELLER_VERIFICATION_MAX_AGE = 300
+
+# Harden browser/session defaults for the production HTTPS deployment.
+app.config.setdefault('SESSION_COOKIE_HTTPONLY', True)
+app.config.setdefault('SESSION_COOKIE_SAMESITE', 'Lax')
+app.config['SESSION_COOKIE_SECURE'] = True
+
+@app.after_request
+def _security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+    response.headers.setdefault('Cache-Control', 'no-store' if request.path.startswith('/verify-seller-whatsapp/') else 'no-cache')
+    return response
+
 
 def _verification_token(user):
-    return app_module._serializer().dumps({'id': user.id, 'email': user.email, 'purpose': 'seller-whatsapp'})
+    return app_module._serializer().dumps({
+        'id': user.id,
+        'email': user.email,
+        'whatsapp': user.pending_seller_whatsapp,
+        'purpose': 'seller-whatsapp',
+    })
 
 
 def _verification_url(user):
@@ -54,8 +75,9 @@ def _activate_seller():
             f"Name: {seller_name}\n"
             f"Merco account: {current_user.email}\n"
             f"WhatsApp: {whatsapp}\n\n"
-            f"Please verify my WhatsApp/account and approve my Seller Mode.\n"
-            f"Admin verification link: {verification_link}"
+            f"Open this Merco verification link within 5 minutes to automatically activate Seller Mode.\n"
+            f"No manual approval or admin login is required.\n"
+            f"Verification link: {verification_link}"
         )
         wa_url = f'https://wa.me/{admin_whatsapp}?text={quote(message)}'
         return redirect(wa_url)
@@ -71,17 +93,26 @@ def _activate_seller():
 
 
 def _verify_seller_whatsapp(token):
-    if not current_user.is_authenticated or current_user.role != 'admin':
-        flash('Please sign in as a Merco admin to approve seller verification.')
-        return redirect(url_for('login'))
     try:
-        data = app_module._serializer().loads(token, max_age=86400)
+        data = app_module._serializer().loads(token, max_age=SELLER_VERIFICATION_MAX_AGE)
         if data.get('purpose') != 'seller-whatsapp':
             raise BadSignature()
-        user = app_module.User.query.filter_by(id=int(data['id']), email=data['email']).first_or_404()
-        if user.seller_verification_status != 'pending' or not user.pending_seller_whatsapp:
-            flash('This seller verification request is no longer pending.')
-            return redirect(url_for('admin_dashboard'))
+        user_id = int(data['id'])
+        email = str(data['email']).strip()
+        token_whatsapp = str(data.get('whatsapp') or '').strip()
+        user = app_module.User.query.filter_by(id=user_id, email=email).first()
+        if not user:
+            raise BadSignature()
+        # A verification link is a short-lived capability. It must still match
+        # the exact pending request, so an older link cannot activate a newer one.
+        if (
+            user.role != 'buyer'
+            or user.seller_verification_status != 'pending'
+            or not user.pending_seller_whatsapp
+            or user.pending_seller_whatsapp.strip() != token_whatsapp
+        ):
+            flash('This seller verification link is no longer valid. Please start Seller Mode again.')
+            return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
         user.role = 'seller'
         user.username = user.pending_seller_name or user.username
         user.seller_slug = app_module.unique_seller_slug(user.username, user.id)
@@ -93,11 +124,13 @@ def _verify_seller_whatsapp(token):
         user.pending_seller_phone = None
         user.pending_seller_whatsapp = None
         app_module.db.session.commit()
-        flash(f'{user.username} has been verified and Seller Mode is now active.')
-        return redirect(url_for('admin_dashboard'))
-    except (BadSignature, SignatureExpired, ValueError, TypeError):
-        flash('That seller verification link is invalid or has expired.')
-        return redirect(url_for('admin_dashboard'))
+        if current_user.is_authenticated and current_user.id == user.id:
+            flash('Your seller account is verified and your store is now active.')
+            return redirect(url_for('dashboard'))
+        return render_template('seller_verification_success.html', seller=user)
+    except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
+        flash('That seller verification link is invalid or has expired. Please start Seller Mode again.')
+        return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
 
 
 app.add_url_rule('/verify-seller-whatsapp/<token>', endpoint='verify_seller_whatsapp', view_func=_verify_seller_whatsapp)
