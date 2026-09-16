@@ -12,8 +12,8 @@ builtins.login_required = login_required
 
 from merco_runtime import app  # noqa: E402
 
-# Patch seller verification after the production wrapper has registered its
-# routes. This keeps Seller Mode independent of WhatsApp Cloud API.
+# Seller Mode uses a short-lived signed link opened through normal WhatsApp.
+# No WhatsApp Cloud API is required.
 import seller_verification_fix  # noqa: E402,F401
 
 MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
@@ -64,7 +64,7 @@ def merco_health():
 
 
 def _email_worker():
-    """Run the email queue with its own Flask application context."""
+    """Run the email queue with a dedicated Flask application context."""
     while True:
         try:
             with app.app_context():
@@ -75,7 +75,7 @@ def _email_worker():
 
 
 def _push_worker():
-    """Run the push queue with its own Flask application context."""
+    """Run the push queue with a dedicated Flask application context."""
     while True:
         try:
             with app.app_context():
