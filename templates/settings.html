@@ -3,7 +3,7 @@
 {% block content %}
 <div class="form-card">
   <div class="eyebrow">ACCOUNT SETTINGS</div><h1>Make Merco yours.</h1><p>Keep your identity and buyer contact details polished. Seller contact details are displayed publicly when you activate Seller Mode.</p>
-  <form method="post"><input type="hidden" name="action" value="profile"><label class="label">Display name</label><input name="username" value="{{ current_user.username }}" required><div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required></div><div><label class="label">Phone for calls</label><input name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}" placeholder="080... or +234..."></div></div><label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="e.g. 2348012345678"><button class="btn">Save profile <i class="ri-save-line"></i></button></form>
+  <form method="post"><input type="hidden" name="action" value="profile"><label class="label">Display name</label><input name="username" value="{{ current_user.username }}" required><div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required></div><div><label class="label">Phone for calls</label><input name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}" placeholder="080... or +234..." pattern="(?:0[789]\d{9}|\+?234[789]\d{9})" title="Enter a valid Nigerian phone number, e.g. 08012345678 or +2348012345678"></div></div><label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="e.g. 2348012345678" pattern="(?:0[789]\d{9}|\+?234[789]\d{9})" title="Enter a valid Nigerian WhatsApp number"><button class="btn">Save profile <i class="ri-save-line"></i></button></form>
 
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
   <div class="eyebrow">DISPLAY & NOTIFICATIONS</div>
@@ -18,14 +18,52 @@
   {% if current_user.seller_verification_status == 'pending' %}
     <div class="panel" style="margin-top:18px;border-color:rgba(37,211,102,.35);background:linear-gradient(135deg,rgba(37,211,102,.08),rgba(7,7,6,.65))"><div style="display:flex;gap:14px;align-items:flex-start"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(37,211,102,.12);color:#25d366;font-size:24px"><i class="ri-whatsapp-line"></i></div><div><div class="eyebrow" style="color:#25d366">WHATSAPP VERIFICATION</div><h3 style="margin:5px 0 8px">Verification link is ready</h3><p style="margin:0">Merco creates a secure verification link that expires after <strong>5 minutes</strong>. Open WhatsApp again to send the link to Customer Care, then open the link to activate your seller account automatically. No email verification, Meta API, manual approval, or admin login is required.</p></div></div><form method="post" style="margin-top:18px"><input type="hidden" name="action" value="become_seller"><input type="hidden" name="seller_name" value="{{ current_user.pending_seller_name or current_user.username }}"><input type="hidden" name="contact_email" value="{{ current_user.pending_seller_email or current_user.email }}"><input type="hidden" name="phone_number" value="{{ current_user.pending_seller_phone or '' }}"><input type="hidden" name="whatsapp" value="{{ current_user.pending_seller_whatsapp or current_user.whatsapp_number or '' }}"><button class="btn" type="submit"><i class="ri-whatsapp-line"></i> Open WhatsApp again</button></form></div>
   {% else %}
-    <p>Seller verification uses normal WhatsApp only. Enter your store details, continue to WhatsApp, send the prepared message to Merco Customer Care, then open the secure verification link before it expires. Seller Mode activates automatically.</p>
-    <form method="post" action="{{ url_for('settings') }}" data-merco-loading>
-      <input type="hidden" name="action" value="become_seller"><label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required>
-      <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="{{ contact.phone_number if contact else '' }}" required></div></div>
-      <label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="2348012345678" required>
+    <p>Enter your seller details. Merco checks that the email has a realistic domain format and that phone/WhatsApp numbers match a valid Nigerian mobile format before creating the verification link.</p>
+    <form method="post" action="{{ url_for('settings') }}" data-merco-loading id="seller-mode-form">
+      <input type="hidden" name="action" value="become_seller"><label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required minlength="2">
+      <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" id="seller-email" type="email" value="{{ contact.public_email if contact else current_user.email }}" required autocomplete="email" title="Enter a real email format such as name@gmail.com"></div><div><label class="label">Phone for buyers</label><input name="phone_number" id="seller-phone" type="tel" value="{{ contact.phone_number if contact else '' }}" placeholder="08012345678 or +2348012345678" required inputmode="tel" pattern="(?:0[789]\d{9}|\+?234[789]\d{9})" title="Enter a valid Nigerian mobile number"></div></div>
+      <label class="label">WhatsApp number</label><input name="whatsapp" id="seller-whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="08012345678 or +2348012345678" required inputmode="tel" pattern="(?:0[789]\d{9}|\+?234[789]\d{9})" title="Enter a valid Nigerian WhatsApp number">
+      <div id="seller-validation" style="display:none;margin-top:12px;padding:12px 14px;border-radius:12px;background:rgba(255,90,90,.08);border:1px solid rgba(255,90,90,.25);color:#ffb0b0"></div>
       <button class="btn" type="submit"><i class="ri-whatsapp-line"></i> Continue with WhatsApp</button>
     </form>
-    <small style="display:block;margin-top:12px;color:var(--muted)"><i class="ri-shield-check-line"></i> No WhatsApp API is required. Merco opens a normal WhatsApp chat with Customer Care and includes your signed five-minute verification link. Opening the link activates only the matching buyer account.</small>
+    <small style="display:block;margin-top:12px;color:var(--muted)"><i class="ri-shield-check-line"></i> Email and phone details are checked in your browser and again on the server. No WhatsApp API is required.</small>
+    <script>
+      (() => {
+        const form = document.getElementById('seller-mode-form');
+        const box = document.getElementById('seller-validation');
+        const email = document.getElementById('seller-email');
+        const phone = document.getElementById('seller-phone');
+        const wa = document.getElementById('seller-whatsapp');
+        if (!form) return;
+        const phoneRe = /^(?:0[789]\d{9}|\+?234[789]\d{9})$/;
+        const emailRe = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+        function cleanPhone(v) { return v.trim().replace(/[\s()-]/g, ''); }
+        function validate(show) {
+          const errors = [];
+          const e = email.value.trim();
+          const p = cleanPhone(phone.value);
+          const w = cleanPhone(wa.value);
+          if (!emailRe.test(e)) errors.push('Enter a valid email address, such as name@gmail.com.');
+          if (!phoneRe.test(p)) errors.push('Enter a valid Nigerian mobile number, such as 08012345678 or +2348012345678.');
+          if (!phoneRe.test(w)) errors.push('Enter a valid Nigerian WhatsApp number, such as 08012345678 or +2348012345678.');
+          if (errors.length) {
+            box.innerHTML = errors.map(x => '<div>• ' + x + '</div>').join('');
+            box.style.display = show ? 'block' : 'none';
+            return false;
+          }
+          box.style.display = 'none';
+          return true;
+        }
+        [email, phone, wa].forEach(el => el.addEventListener('input', () => validate(false)));
+        form.addEventListener('submit', event => {
+          if (!validate(true)) {
+            event.preventDefault();
+            const firstInvalid = [email, phone, wa].find(el => !el.checkValidity());
+            if (firstInvalid) firstInvalid.focus();
+          }
+        });
+      })();
+    </script>
   {% endif %}
   {% else %}
   <div class="panel" style="margin-top:28px"><div class="eyebrow">SELLER VERIFIED</div><h2>Your store is live</h2><p><i class="ri-checkbox-circle-line"></i> Your seller account was verified through WhatsApp.</p><p>Public link: <strong>/seller/{{ current_user.seller_slug }}</strong></p><div class="two-col" style="margin-top:18px"><div><small>Public email</small><strong>{{ contact.public_email if contact else current_user.email }}</strong></div><div><small>Phone</small><strong>{{ contact.phone_number if contact else 'Not set' }}</strong></div></div><a class="btn" style="margin-top:18px" href="{{ url_for('seller_page',seller_slug=current_user.seller_slug) }}">View my store <i class="ri-external-link-line"></i></a></div>
