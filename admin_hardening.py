@@ -4,7 +4,7 @@ from datetime import datetime
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, logout_user
-from sqlalchemy import inspect, text, or
+from sqlalchemy import inspect, text, or_
 
 from sitefix import app, db
 import app as app_module
@@ -55,7 +55,7 @@ def _admin_dashboard_hardened():
 @app.post('/admin/user/<int:id>/delete', endpoint='admin_delete_user_hardened')
 @login_required
 def admin_delete_user_hardened(id):
-    """Simple admin deletion: delete the user's products, then the user row."""
+    """Delete a user and that user's products directly in the database."""
     denied = _admin_only()
     if denied:
         return denied
@@ -71,12 +71,8 @@ def admin_delete_user_hardened(id):
 
     try:
         with engine.begin() as connection:
-            # We intentionally do not use SQLAlchemy ORM deletion here.
-            # Delete the seller's products first, then the account itself.
-            # MySQL FK checks are disabled for this tiny transaction so legacy
-            # tables cannot make the simple deletion fail.
             if dialect == 'mysql':
-                connection.execute(text('SET FOREIGN_KEY_CHECKS = 0'))
+                connection.execute(text('SET FOREIGN_KEY_CHECKS=0'))
 
             try:
                 row = connection.execute(
@@ -100,13 +96,11 @@ def admin_delete_user_hardened(id):
                     text(f'DELETE FROM {user_table} WHERE id = :id'),
                     {'id': id},
                 )
-
                 username = row['username']
             finally:
                 if dialect == 'mysql':
-                    connection.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
+                    connection.execute(text('SET FOREIGN_KEY_CHECKS=1'))
 
-        # Clear any stale ORM state after the direct SQL operation.
         db.session.expire_all()
         flash(f'{username} and their products were permanently deleted.')
     except Exception:
@@ -117,7 +111,6 @@ def admin_delete_user_hardened(id):
     return redirect(url_for('admin_dashboard'))
 
 
-# Keep the endpoint used by the existing admin template.
 app.view_functions['admin_delete_user_safe'] = admin_delete_user_hardened
 app.view_functions['admin_delete_user_hardened'] = admin_delete_user_hardened
 app.view_functions['admin_dashboard'] = _admin_dashboard_hardened
