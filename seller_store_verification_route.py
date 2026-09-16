@@ -1,9 +1,9 @@
 """Final seller verification route override.
 
-The original application already registers /verify-seller/<token>. Merely adding
-another identical URL rule does not replace the earlier rule: Werkzeug dispatches
-the first matching rule. This module therefore replaces the view functions of
-existing matching rules and only adds a route when one does not already exist.
+Seller verification is intentionally simple: the secure signed link is the
+verification action. We only check that the saved seller contact values exist
+and that the Nigerian phone number has the expected length/shape. No OTP,
+WhatsApp API, email delivery, or manual approval is involved.
 """
 
 from flask import flash, redirect, url_for
@@ -15,14 +15,25 @@ import app as app_module
 import seller_verification_fix as seller_fix
 
 
-def _public_store_url(slug):
+def _seller_store_url(slug):
     if not slug:
         raise ValueError('Seller store was not created correctly.')
-    return url_for('public_store', seller_slug=slug, _external=True)
+    # app.py's real public storefront endpoint is seller_page.
+    return url_for('seller_page', seller_slug=slug, _external=True)
 
 
 def _settings_or_login():
     return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
+
+
+def _phone_exists_and_has_valid_length(value):
+    normalized = seller_fix._normalize_phone(value)
+    if not normalized:
+        return None
+    # Nigerian mobile numbers are +234 followed by 10 digits.
+    if len(normalized) != 14:
+        return None
+    return normalized
 
 
 def verify_seller(token):
@@ -36,12 +47,12 @@ def verify_seller(token):
         if not user:
             raise BadSignature()
 
-        # A previously completed verification must never fall back to Settings.
+        # If a previous request already completed, open the store instead of
+        # sending the user back to Settings.
         if user.role == 'seller' and user.seller_verified:
-            seller_url = _public_store_url(user.seller_slug)
             return seller_fix._verification_progress_html(
                 user.username or 'Seller',
-                seller_url,
+                _seller_store_url(user.seller_slug),
             )
 
         if user.role != 'buyer' or user.seller_verification_status != 'pending':
@@ -49,15 +60,18 @@ def verify_seller(token):
             return _settings_or_login()
 
         seller_name = (user.pending_seller_name or user.username or 'Merco Seller').strip()[:100]
-        public_email = seller_fix._valid_email(user.pending_seller_email)
-        phone = seller_fix._normalize_phone(user.pending_seller_phone)
-        whatsapp = seller_fix._normalize_phone(user.pending_seller_whatsapp)
+        if not seller_name:
+            raise ValueError('A seller/store name is required.')
 
+        # The contact details must exist. The phone is only checked for valid
+        # Nigerian mobile shape/length; no code is sent and no external service
+        # is called to verify ownership.
+        public_email = (user.pending_seller_email or user.email or '').strip()
+        phone = _phone_exists_and_has_valid_length(user.pending_seller_phone)
+        whatsapp = _phone_exists_and_has_valid_length(user.pending_seller_whatsapp)
         if not public_email or not phone or not whatsapp:
-            raise ValueError('The saved seller email or phone details are no longer valid. Please restart Seller Mode.')
+            raise ValueError('Your saved email and phone details are incomplete or invalid. Please restart Seller Mode.')
 
-        # The signed link is the verification action. The saved contact values
-        # are checked again immediately before seller activation.
         slug = app_module.unique_seller_slug(seller_name, user.id)
         user.role = 'seller'
         user.username = seller_name
@@ -71,7 +85,7 @@ def verify_seller(token):
         user.pending_seller_whatsapp = None
         app_module.db.session.commit()
 
-        seller_url = _public_store_url(slug)
+        seller_url = _seller_store_url(slug)
         app.logger.info('SELLER_VERIFICATION_SUCCESS user_id=%s slug=%s', user.id, slug)
         return seller_fix._verification_progress_html(seller_name, seller_url)
 
@@ -81,7 +95,7 @@ def verify_seller(token):
         return _settings_or_login()
     except (BadSignature, ValueError, TypeError, KeyError):
         app_module.db.session.rollback()
-        flash('That seller verification link is invalid. Start Seller Mode again to create a new link.')
+        flash('That seller verification link is invalid or the saved phone details are incomplete. Start Seller Mode again to create a new link.')
         return _settings_or_login()
     except Exception:
         app_module.db.session.rollback()
@@ -99,16 +113,10 @@ def _replace_or_add_rule(rule_path, endpoint, view_func):
     app.add_url_rule(rule_path, endpoint=endpoint, view_func=view_func)
 
 
-# The app already has a /verify-seller/<token> rule. Replace its registered
-# endpoint rather than adding a duplicate rule that would never be reached.
 _replace_or_add_rule('/verify-seller/<token>', 'verify_seller_final', verify_seller)
-
-# Keep any old endpoint names pointing to the same final implementation.
 app.view_functions['verify_seller_whatsapp'] = verify_seller
 if 'verify_seller_final' not in app.view_functions:
     app.view_functions['verify_seller_final'] = verify_seller
 
-# Also expose a separate clean compatibility URL for links generated by newer
-# versions, without touching the original /verify-seller/<token> dispatch.
 if not any(rule.rule == '/verify-seller-final/<token>' for rule in app.url_map.iter_rules()):
     app.add_url_rule('/verify-seller-final/<token>', endpoint='verify_seller_final_url', view_func=verify_seller)
