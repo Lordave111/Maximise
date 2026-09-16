@@ -5,6 +5,7 @@ from datetime import datetime
 
 from flask import jsonify, request
 from flask_login import current_user, login_required
+from sqlalchemy import inspect, text
 from sitefix import app, db
 
 try:
@@ -28,6 +29,22 @@ class PushSubscription(db.Model):
 
 with app.app_context():
     db.create_all()
+    # SQLAlchemy's create_all() does not add newly introduced columns to an
+    # existing MySQL table. Railway already has push_job from an earlier
+    # deployment, but that table can predate processed_at. Bring the live
+    # schema up to the model before the background worker queries it.
+    try:
+        inspector = inspect(db.engine)
+        if 'push_job' in inspector.get_table_names():
+            columns = {column['name'] for column in inspector.get_columns('push_job')}
+            if 'processed_at' not in columns:
+                db.session.execute(text(
+                    'ALTER TABLE push_job ADD COLUMN processed_at DATETIME NULL'
+                ))
+                db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not migrate push_job.processed_at column.')
 
 
 def vapid_public_key():
