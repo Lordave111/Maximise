@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Opening your store · Merco{% endblock %}
+{% block content %}
+<style>
+.store-loading{min-height:70vh;display:grid;place-items:center;padding:40px 18px}
+.store-loading-card{width:min(520px,100%);text-align:center;padding:44px 28px;border:1px solid rgba(0,255,136,.18);border-radius:28px;background:linear-gradient(145deg,rgba(12,24,18,.96),rgba(4,8,6,.96));box-shadow:0 24px 80px rgba(0,0,0,.35)}
+.store-spinner{width:68px;height:68px;margin:0 auto 24px;border:3px solid rgba(0,255,136,.12);border-top-color:#00ff88;border-right-color:#00ff88;border-radius:50%;animation:storeSpin .8s linear infinite}
+.store-logo{width:44px;height:44px;margin:-78px auto 30px;border-radius:14px;display:grid;place-items:center;background:#07150e;border:1px solid rgba(0,255,136,.3);color:#00ff88;font-weight:900;font-size:20px}
+.store-loading-card h1{margin:0 0 10px}.store-loading-card p{color:var(--muted);margin:0}.store-progress{height:4px;margin:28px auto 0;max-width:300px;overflow:hidden;border-radius:99px;background:rgba(255,255,255,.07)}
+.store-progress span{display:block;width:45%;height:100%;background:#00ff88;border-radius:99px;animation:storeProgress 1.4s ease-in-out infinite}
+@keyframes storeSpin{to{transform:rotate(360deg)}}@keyframes storeProgress{0%{transform:translateX(-120%)}100%{transform:translateX(340%)}}
+</style>
+<div class="store-loading" aria-live="polite">
+  <section class="store-loading-card">
+    <div class="store-spinner"></div><div class="store-logo">M</div>
+    <h1>Opening your store</h1>
+    <p>Preparing your storefront and loading your products…</p>
+    <div class="store-progress"><span></span></div>
+  </section>
+</div>
+<script>
+  setTimeout(function(){ window.location.replace({{ store_url|tojson }}); }, 1600);
+</script>
+{% endblock %}
