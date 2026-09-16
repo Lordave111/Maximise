@@ -16,6 +16,11 @@ MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
 os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
+# Load the canonical marketplace/store routes before Seller Mode builds the
+# storefront transition URL. This guarantees /store/<seller_slug> exists in
+# the production entrypoint and prevents a BuildError/internal server error.
+import marketfix  # noqa: E402,F401
+
 # Seller Mode is instant: no seller verification, OTP, email code, WhatsApp API,
 # signed seller link, or manual approval is used.
 import seller_mode_simple  # noqa: E402,F401
