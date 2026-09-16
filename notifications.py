@@ -27,18 +27,15 @@ class Notification(db.Model):
 class PushJob(db.Model):
     __tablename__ = 'push_job'
     id = db.Column(db.Integer, primary_key=True)
-    # Existing Railway/Aiven databases require this field even though an
-    # older ORM model did not declare it.
     user_id = db.Column(db.Integer, nullable=False, index=True)
     notification_id = db.Column(db.Integer, nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, default='pending', index=True)
     attempts = db.Column(db.Integer, nullable=False, default=0)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    available_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
     processed_at = db.Column(db.DateTime, nullable=True)
 
 
-# create_all() does not modify existing MySQL tables. Repair legacy schemas at
-# startup so notification creation cannot abort seller activation.
 def _repair_notification_schema():
     try:
         db.create_all()
@@ -72,13 +69,14 @@ def _repair_notification_schema():
                 'status': "VARCHAR(20) NOT NULL DEFAULT 'pending'",
                 'attempts': "INTEGER NOT NULL DEFAULT 0",
                 'created_at': "DATETIME NULL",
+                'available_at': "DATETIME NULL",
                 'processed_at': "DATETIME NULL",
             }
             for name, definition in additions.items():
                 if name not in existing:
                     db.session.execute(text(f"ALTER TABLE push_job ADD COLUMN {name} {definition}"))
-            if 'created_at' not in existing:
-                db.session.execute(text("UPDATE push_job SET created_at = UTC_TIMESTAMP() WHERE created_at IS NULL"))
+            db.session.execute(text("UPDATE push_job SET available_at = COALESCE(available_at, created_at, UTC_TIMESTAMP()) WHERE available_at IS NULL"))
+            db.session.execute(text("UPDATE push_job SET created_at = COALESCE(created_at, UTC_TIMESTAMP()) WHERE created_at IS NULL"))
             db.session.commit()
     except Exception:
         db.session.rollback()
@@ -113,6 +111,7 @@ def create_notification_connection(connection, user_id, kind, title, message, ac
             status='pending',
             attempts=0,
             created_at=datetime.utcnow(),
+            available_at=datetime.utcnow(),
         ))
 
 
