@@ -2,7 +2,7 @@
 from datetime import datetime
 from flask import jsonify, render_template, redirect, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import select, event
+from sqlalchemy import select, event, text, inspect
 from sqlalchemy.orm.attributes import get_history
 
 from sitefix import app, db
@@ -34,8 +34,59 @@ class PushJob(db.Model):
     processed_at = db.Column(db.DateTime, nullable=True)
 
 
+# create_all() only creates missing tables; it does not add columns to an
+# existing Railway/MySQL table. Older Merco databases can therefore be missing
+# newer notification fields (for example `kind`). Repair those columns safely
+# at startup before any notification query/insert runs.
+def _repair_notification_schema():
+    try:
+        db.create_all()
+        inspector = inspect(db.engine)
+
+        if 'notification' in inspector.get_table_names():
+            existing = {col['name'] for col in inspector.get_columns('notification')}
+            additions = {
+                'kind': "VARCHAR(40) NOT NULL DEFAULT 'general'",
+                'title': "VARCHAR(180) NOT NULL DEFAULT ''",
+                'message': "VARCHAR(1000) NOT NULL DEFAULT ''",
+                'action_url': "VARCHAR(600) NULL",
+                'action_text': "VARCHAR(100) NULL",
+                'is_read': "BOOLEAN NOT NULL DEFAULT FALSE",
+                'created_at': "DATETIME NULL",
+            }
+            for name, definition in additions.items():
+                if name not in existing:
+                    db.session.execute(text(f"ALTER TABLE notification ADD COLUMN {name} {definition}"))
+            # Backfill nullable legacy timestamps before making them useful to
+            # ordering code. Leave the column nullable for old rows.
+            if 'created_at' not in existing:
+                db.session.execute(text("UPDATE notification SET created_at = UTC_TIMESTAMP() WHERE created_at IS NULL"))
+            db.session.commit()
+
+        # Keep the push queue compatible with the same legacy database.
+        inspector = inspect(db.engine)
+        if 'push_job' in inspector.get_table_names():
+            existing = {col['name'] for col in inspector.get_columns('push_job')}
+            additions = {
+                'notification_id': "INTEGER NOT NULL DEFAULT 0",
+                'status': "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+                'attempts': "INTEGER NOT NULL DEFAULT 0",
+                'created_at': "DATETIME NULL",
+                'processed_at': "DATETIME NULL",
+            }
+            for name, definition in additions.items():
+                if name not in existing:
+                    db.session.execute(text(f"ALTER TABLE push_job ADD COLUMN {name} {definition}"))
+            if 'created_at' not in existing:
+                db.session.execute(text("UPDATE push_job SET created_at = UTC_TIMESTAMP() WHERE created_at IS NULL"))
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Notification database schema repair failed')
+
+
 with app.app_context():
-    db.create_all()
+    _repair_notification_schema()
 
 
 def create_notification(user_id, kind, title, message, action_url='', action_text='Open'):
