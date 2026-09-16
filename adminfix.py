@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, logout_user
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, or_
 from werkzeug.security import generate_password_hash
 
 from sitefix import app, db
@@ -76,7 +76,15 @@ def _admin_dashboard():
     denied = _admin_only()
     if denied:
         return denied
-    users = User.query.order_by(User.id.desc()).all()
+    search = request.args.get('user_search', '').strip()
+    query = User.query
+    if search:
+        term = f'%{search}%'
+        if search.isdigit():
+            query = query.filter(or_(User.username.ilike(term), User.email.ilike(term), User.id == int(search)))
+        else:
+            query = query.filter(or_(User.username.ilike(term), User.email.ilike(term)))
+    users = query.order_by(User.id.desc()).all()
     sellers = [user for user in users if user.role == 'seller']
     buyers = [user for user in users if user.role == 'buyer']
     products = Product.query.order_by(Product.id.desc()).all()
@@ -88,6 +96,7 @@ def _admin_dashboard():
         buyers=buyers,
         products=products,
         suspended_count=suspended_count,
+        user_search=search,
     )
 
 
@@ -202,8 +211,6 @@ def admin_delete_user_safe(id):
         return redirect(url_for('admin_dashboard'))
 
     try:
-        # Clean uploaded files first; the DB transaction below remains the
-        # source of truth for the account deletion.
         delete_files = getattr(app_module, 'delete_product_files', None)
         for product in list(user.products):
             if delete_files:
@@ -212,9 +219,6 @@ def admin_delete_user_safe(id):
                 except Exception:
                     app.logger.exception('Could not remove files for product %s', product.id)
 
-        # Several optional marketplace modules have user foreign keys without
-        # ORM relationships. Delete those rows explicitly so MySQL/Postgres
-        # foreign-key constraints cannot block account removal.
         related_tables = (
             'push_subscription', 'email_job', 'notification',
             'seller_follow', 'product_view', 'seller_contact',
@@ -237,7 +241,6 @@ def admin_delete_user_safe(id):
             elif table in {'seller_contact', 'listing_placement', 'listing_payment'} and 'seller_id' in columns:
                 db.session.execute(text(f'DELETE FROM {preparer.quote(table)} WHERE seller_id = :uid'), {'uid': user.id})
 
-        # Product rows are cascade/delete-orphan children of User.
         db.session.delete(user)
         db.session.commit()
         flash(f'{user.username} was permanently deleted.')
