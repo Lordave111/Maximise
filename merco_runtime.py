@@ -4,19 +4,15 @@ import os
 import time
 import threading
 from datetime import datetime, timedelta
-from urllib.parse import quote
 
-from flask import flash, redirect, render_template, request, url_for, jsonify
+from flask import flash, redirect, render_template, request, jsonify, url_for
 from flask_login import current_user, login_required
 from sqlalchemy import text
-from itsdangerous import BadSignature, SignatureExpired
 
 from sitefix import app
 import app as app_module
 import bootstrap
-import uploadfix  # noqa: E402,F401 - real seller upload route
-
-SELLER_VERIFICATION_MAX_AGE = 300
+import uploadfix  # noqa: E402,F401
 
 # Harden browser/session defaults for the production HTTPS deployment.
 app.config.setdefault('SESSION_COOKIE_HTTPONLY', True)
@@ -29,129 +25,8 @@ def _security_headers(response):
     response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-    response.headers.setdefault('Cache-Control', 'no-store' if request.path.startswith('/verify-seller-whatsapp/') else 'no-cache')
+    response.headers.setdefault('Cache-Control', 'no-cache')
     return response
-
-
-def _verification_token(user):
-    # Seller verification is WhatsApp-only. Do not put the account email into
-    # the signed capability token; the email field remains available elsewhere
-    # in the account/profile as a normal contact field.
-    return app_module._serializer().dumps({
-        'id': user.id,
-        'whatsapp': user.pending_seller_whatsapp,
-        'purpose': 'seller-whatsapp',
-    })
-
-
-def _verification_url(user):
-    return url_for('verify_seller_whatsapp', token=_verification_token(user), _external=True)
-
-
-def _activate_seller():
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
-    if current_user.role != 'buyer':
-        return redirect(url_for('dashboard'))
-    try:
-        seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]
-        public_email = (request.form.get('contact_email') or current_user.email).strip()[:160]
-        phone = (request.form.get('phone_number') or '').strip()[:40]
-        whatsapp = (request.form.get('whatsapp') or '').strip()[:30]
-        if not seller_name or not public_email or '@' not in public_email or not phone or not whatsapp:
-            raise ValueError('Seller name, public email, phone and WhatsApp are required.')
-        admin_whatsapp = ''.join(ch for ch in os.environ.get('MERCO_VERIFICATION_WHATSAPP', '').strip() if ch.isdigit())
-        if not admin_whatsapp:
-            raise ValueError('Seller verification is temporarily unavailable. Please contact Merco support.')
-        bootstrap.save_contact(current_user, public_email, phone, require_phone=True)
-        current_user.pending_seller_name = seller_name
-        current_user.pending_seller_email = public_email
-        current_user.pending_seller_phone = phone
-        current_user.pending_seller_whatsapp = whatsapp
-        current_user.seller_verification_status = 'pending'
-        current_user.seller_verified = False
-        app_module.db.session.commit()
-        verification_link = _verification_url(current_user)
-        message = (
-            f"Hello Merco Support, I want to open a seller store.\n\n"
-            f"Name: {seller_name}\n"
-            f"WhatsApp: {whatsapp}\n\n"
-            f"Open this Merco verification link within 5 minutes to automatically activate Seller Mode.\n"
-            f"No manual approval or admin login is required.\n"
-            f"Verification link: {verification_link}"
-        )
-        wa_url = f'https://wa.me/{admin_whatsapp}?text={quote(message)}'
-        return redirect(wa_url)
-    except ValueError as exc:
-        app_module.db.session.rollback()
-        flash(str(exc))
-        return redirect(url_for('settings'))
-    except Exception:
-        app_module.db.session.rollback()
-        app.logger.exception('Seller verification request failed')
-        flash('Seller verification could not be started. No account changes were saved. Please try again.')
-        return redirect(url_for('settings'))
-
-
-def _verify_seller_whatsapp(token):
-    try:
-        data = app_module._serializer().loads(token, max_age=SELLER_VERIFICATION_MAX_AGE)
-        if data.get('purpose') != 'seller-whatsapp':
-            raise BadSignature()
-        user_id = int(data['id'])
-        token_whatsapp = str(data.get('whatsapp') or '').strip()
-        user = app_module.User.query.filter_by(id=user_id).first()
-        if not user:
-            raise BadSignature()
-        # A verification link is a short-lived capability. It must still match
-        # the exact pending request, so an older link cannot activate a newer one.
-        if (
-            user.role != 'buyer'
-            or user.seller_verification_status != 'pending'
-            or not user.pending_seller_whatsapp
-            or user.pending_seller_whatsapp.strip() != token_whatsapp
-        ):
-            flash('This seller verification link is no longer valid. Please start Seller Mode again.')
-            return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
-        user.role = 'seller'
-        user.username = user.pending_seller_name or user.username
-        user.seller_slug = app_module.unique_seller_slug(user.username, user.id)
-        user.whatsapp_number = user.pending_seller_whatsapp
-        user.seller_verified = True
-        user.seller_verification_status = 'verified'
-        user.pending_seller_name = None
-        user.pending_seller_email = None
-        user.pending_seller_phone = None
-        user.pending_seller_whatsapp = None
-        app_module.db.session.commit()
-        if current_user.is_authenticated and current_user.id == user.id:
-            flash('Your seller account is verified and your store is now active.')
-            return redirect(url_for('dashboard'))
-        return redirect(url_for('seller_page', seller_slug=user.seller_slug))
-    except (BadSignature, SignatureExpired, ValueError, TypeError, KeyError):
-        flash('That seller verification link is invalid or has expired. Please start Seller Mode again.')
-        return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
-
-
-app.add_url_rule('/verify-seller-whatsapp/<token>', endpoint='verify_seller_whatsapp', view_func=_verify_seller_whatsapp)
-
-
-def _seller_access_gate():
-    """Never expose seller store/management routes to an unverified seller."""
-    if not current_user.is_authenticated or current_user.role != 'seller' or getattr(current_user, 'seller_verified', False):
-        return None
-    path = request.path.rstrip('/') or '/'
-    seller_only_prefixes = (
-        '/seller', '/upload', '/add-product', '/edit-product', '/delete-product',
-        '/seller-dashboard', '/my-store', '/store/manage',
-    )
-    if path.startswith(seller_only_prefixes):
-        flash('Complete WhatsApp verification before opening or managing your seller store.')
-        return redirect(url_for('settings'))
-    return None
-
-
-app.before_request(_seller_access_gate)
 
 
 def _production_settings():
@@ -184,9 +59,52 @@ def _production_settings():
                 flash(str(exc))
             return redirect(url_for('settings'))
         if action == 'become_seller':
-            return _activate_seller()
+            # Seller Mode is instant. No WhatsApp redirect, verification token,
+            # OTP, admin approval, or external verification is involved.
+            if current_user.role == 'seller':
+                if not current_user.seller_slug:
+                    current_user.seller_slug = app_module.unique_seller_slug(current_user.username, current_user.id)
+                current_user.seller_verified = True
+                current_user.seller_verification_status = 'none'
+                app_module.db.session.commit()
+                return redirect(url_for('seller_open', seller_slug=current_user.seller_slug))
+
+            seller_name = (request.form.get('seller_name') or current_user.username).strip()[:100]
+            whatsapp = request.form.get('whatsapp', '').strip()[:30]
+            public_email = (request.form.get('contact_email') or current_user.email).strip()[:160]
+            phone = request.form.get('phone_number', '').strip()[:40]
+            if not seller_name:
+                flash('Enter a store name.')
+                return redirect(url_for('settings'))
+            if not whatsapp:
+                flash('Add a WhatsApp number so buyers can contact you.')
+                return redirect(url_for('settings'))
+            if not public_email or '@' not in public_email:
+                flash('Enter a valid contact email.')
+                return redirect(url_for('settings'))
+            try:
+                bootstrap.save_contact(current_user, public_email, phone, require_phone=False)
+                current_user.username = seller_name
+                current_user.role = 'seller'
+                current_user.seller_slug = app_module.unique_seller_slug(seller_name, current_user.id)
+                current_user.whatsapp_number = whatsapp
+                current_user.seller_verified = True
+                current_user.seller_verification_status = 'none'
+                current_user.pending_seller_name = None
+                current_user.pending_seller_email = None
+                current_user.pending_seller_phone = None
+                current_user.pending_seller_whatsapp = None
+                app_module.db.session.commit()
+                return redirect(url_for('seller_open', seller_slug=current_user.seller_slug))
+            except Exception as exc:
+                app_module.db.session.rollback()
+                app.logger.exception('Instant Seller Mode activation failed')
+                flash(f'Could not create your store: {exc}')
+                return redirect(url_for('settings'))
+
         flash('Nothing to update.')
         return redirect(url_for('settings'))
+
     try:
         contact = bootstrap.get_contact(current_user)
     except Exception:
@@ -195,53 +113,18 @@ def _production_settings():
     return render_template('settings.html', contact=contact)
 
 
+# Keep the production settings handler while preserving the rest of the app.
 app.view_functions['settings'] = _production_settings
 
 
 @app.route('/activate-seller', methods=['POST'], endpoint='activate_seller_production')
 @login_required
 def activate_seller_production():
-    return _activate_seller()
+    return _production_settings()
 
 
-app.before_request_funcs.setdefault(None, [])
-
-
-def safe_seller_activation():
-    if request.path == '/settings' and request.method == 'POST' and request.form.get('action') == 'become_seller':
-        return _activate_seller()
-    return None
-
-
-app.before_request(safe_seller_activation)
-
-
-import email_notifications  # noqa: E402,F401
-
-_EMAIL_WORKER_STOP = threading.Event()
-_EMAIL_WORKER_LOCK = threading.Lock()
-
-
-def _process_queued_emails_background():
-    if not _EMAIL_WORKER_LOCK.acquire(blocking=False):
-        return
-    try:
-        email_notifications.process_email_queue(limit=3)
-    except Exception:
-        app.logger.exception('Background email queue processing failed')
-    finally:
-        _EMAIL_WORKER_LOCK.release()
-
-
-def _email_worker_loop():
-    while not _EMAIL_WORKER_STOP.wait(15):
-        _process_queued_emails_background()
-
-
-if not app.extensions.get('merco_email_worker_started'):
-    app.extensions['merco_email_worker_started'] = True
-    _EMAIL_WORKER_THREAD = threading.Thread(target=_email_worker_loop, name='merco-email-worker', daemon=True)
-    _EMAIL_WORKER_THREAD.start()
+# Legacy seller verification routes are intentionally not registered here.
+# WhatsApp is a storefront contact method only, never a seller-creation step.
 
 
 _DEMO_SEED_READY = False
@@ -266,7 +149,8 @@ def _ensure_demo_listings_live():
                 placement = bootstrap.ListingPlacement.query.filter_by(product_id=product.id).first()
                 if not placement:
                     placement = bootstrap.ListingPlacement(product_id=product.id, seller_id=seller.id, duration_hours=87600, fee_percent=0, amount_kobo=0, is_free=True, starts_at=now, expires_at=horizon)
-                    app_module.db.session.add(placement); repaired += 1
+                    app_module.db.session.add(placement)
+                    repaired += 1
                 else:
                     changed = False
                     if placement.seller_id != seller.id: placement.seller_id = seller.id; changed = True
@@ -276,7 +160,8 @@ def _ensure_demo_listings_live():
                     if not placement.expires_at or placement.expires_at <= now:
                         placement.starts_at = now; placement.expires_at = horizon; placement.duration_hours = 87600; changed = True
                     if changed: repaired += 1
-        if repaired: app_module.db.session.commit()
+        if repaired:
+            app_module.db.session.commit()
         return repaired
     except Exception:
         app.logger.exception('Permanent demo listing repair failed.')
@@ -293,13 +178,16 @@ def _seed_and_repair_demo_data():
         try:
             with app.app_context():
                 import demo_seed
-                created = demo_seed.seed_demo_data(); repaired = _ensure_demo_listings_live()
+                created = demo_seed.seed_demo_data()
+                repaired = _ensure_demo_listings_live()
                 demo_sellers = app_module.User.query.filter(app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%')).count()
                 demo_products = app_module.Product.query.join(app_module.User, app_module.Product.seller_id == app_module.User.id).filter(app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%')).count()
                 live_products = app_module.Product.query.join(app_module.User, app_module.Product.seller_id == app_module.User.id).filter(app_module.User.role == 'seller', app_module.User.seller_slug.like('merco-demo-store-%'), app_module.Product.is_sold_out.is_(False)).count()
                 status = {'sellers': demo_sellers, 'products': demo_products, 'live_products': live_products, 'created': created, 'repaired': repaired}
-                _DEMO_SEED_READY = demo_sellers >= 50 and demo_products >= 150; _DEMO_SEED_READY_AT = time.time() if _DEMO_SEED_READY else 0.0
-                app.logger.info('DEMO_SEED_STATUS %s', status); return status
+                _DEMO_SEED_READY = demo_sellers >= 50 and demo_products >= 150
+                _DEMO_SEED_READY_AT = time.time() if _DEMO_SEED_READY else 0.0
+                app.logger.info('DEMO_SEED_STATUS %s', status)
+                return status
         except Exception as exc:
             app.logger.exception('Demo account/catalog guard failed.')
             try: app_module.db.session.rollback()
@@ -309,14 +197,17 @@ def _seed_and_repair_demo_data():
 
 @app.post('/tasks/seed-demo')
 def seed_demo_task():
-    expected = app_module.os.environ.get('CRON_SECRET', '').strip(); supplied = request.headers.get('X-Cron-Secret', '') or request.args.get('secret', '')
-    if not expected or supplied != expected: return jsonify({'ok': False}), 401
+    expected = app_module.os.environ.get('CRON_SECRET', '').strip()
+    supplied = request.headers.get('X-Cron-Secret', '') or request.args.get('secret', '')
+    if not expected or supplied != expected:
+        return jsonify({'ok': False}), 401
     return jsonify(_seed_and_repair_demo_data()), 200
 
 
 def _demo_health():
     try:
-        app_module.db.session.execute(text('SELECT 1')); return jsonify({'status': 'ok', 'service': 'merco', 'database': 'ok'}), 200
+        app_module.db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ok', 'service': 'merco', 'database': 'ok'}), 200
     except Exception:
         try: app_module.db.session.rollback()
         except Exception: pass
