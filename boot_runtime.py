@@ -12,6 +12,11 @@ builtins.login_required = login_required
 
 from merco_runtime import app  # noqa: E402
 
+# Patch seller verification after the production wrapper has registered its
+# routes. This fixes the successful-link redirect and enables automatic
+# WhatsApp delivery when the Cloud API variables are configured.
+import seller_verification_fix  # noqa: E402,F401
+
 # Railway is the only supported production origin. Set this before importing
 # email modules so no inherited deployment variable can produce another host.
 MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
