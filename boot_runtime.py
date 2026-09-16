@@ -35,6 +35,7 @@ with app.app_context():
 import notifications  # noqa: E402,F401
 import push_notifications  # noqa: E402,F401
 import adminfix  # noqa: E402,F401
+import admin_hardening  # noqa: E402,F401
 import paystack_redirectfix  # noqa: E402,F401
 import swfix  # noqa: E402,F401
 
