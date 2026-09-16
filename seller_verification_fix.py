@@ -1,12 +1,12 @@
-"""Seller verification without a WhatsApp API.
+"""Simple seller verification for Merco.
 
-Normal WhatsApp only shares the short-lived verification link. The link itself
-activates Seller Mode; no WhatsApp API or email verification is required.
+Seller Mode uses one signed verification link. No WhatsApp API, WhatsApp chat,
+email verification, or manual approval is required.
 """
 import hashlib
+import html
 import os
 import re
-from urllib.parse import quote
 
 from flask import flash, redirect, request, url_for
 from flask_login import current_user
@@ -63,13 +63,25 @@ def _valid_email(value):
 
 
 def _token(user):
-    whatsapp = _normalize_phone(user.pending_seller_whatsapp or '')
-    return _seller_serializer().dumps({'id': int(user.id), 'whatsapp': whatsapp, 'purpose': 'seller-whatsapp'})
+    # The verification link is deliberately independent of WhatsApp/email.
+    return _seller_serializer().dumps({'id': int(user.id), 'purpose': 'seller-link'})
 
 
 def _verification_url(user):
     base = (os.environ.get('MERCO_PUBLIC_URL') or 'https://maximise-production.up.railway.app').rstrip('/')
     return f"{base}/verify-seller-whatsapp/{_token(user)}"
+
+
+def _verification_ready_html(name, verification_link):
+    safe_name = html.escape(name or 'Seller')
+    safe_link = html.escape(verification_link, quote=True)
+    return f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verify your store · Merco</title>
+<style>
+:root{{--bg:#050a08;--panel:#0b1712;--green:#00ff88;--text:#e7f5ef;--muted:#8ea79d;--line:rgba(0,255,136,.16)}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;padding:22px;background:radial-gradient(circle at 50% 0%,rgba(0,255,136,.13),transparent 38%),var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;display:grid;place-items:center}}body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:34px 34px;mask-image:linear-gradient(to bottom,#000,transparent 85%)}}.wrap{{width:min(100%,570px);position:relative}}.brand{{display:flex;justify-content:center;align-items:center;gap:10px;margin-bottom:18px;font-weight:900;letter-spacing:.12em}}.mark{{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;border:1px solid rgba(0,255,136,.45);color:var(--green);font-size:21px;box-shadow:0 0 30px rgba(0,255,136,.12)}}.card{{background:linear-gradient(145deg,rgba(14,31,23,.98),rgba(7,14,10,.99));border:1px solid var(--line);border-radius:28px;padding:34px;box-shadow:0 30px 90px rgba(0,0,0,.48),0 0 50px rgba(0,255,136,.06)}}.top{{text-align:center}}.icon{{width:76px;height:76px;margin:0 auto 18px;border-radius:23px;display:grid;place-items:center;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.28);color:var(--green);font-size:38px}}.eyebrow{{font-size:11px;font-weight:900;letter-spacing:.14em;color:var(--green)}}h1{{font-size:clamp(28px,7vw,40px);line-height:1.08;margin:12px 0}}.lead{{margin:0;color:var(--muted);line-height:1.65}}.timer{{margin:24px 0 18px;padding:13px 15px;border-radius:15px;background:rgba(255,190,70,.07);border:1px solid rgba(255,190,70,.18);color:#d9c9a5;font-size:13px;text-align:center}}.timer strong{{color:#ffe1a0}}.linkbox{{display:flex;gap:9px;margin-top:18px}}.linkbox input{{min-width:0;flex:1;padding:14px;border-radius:13px;border:1px solid rgba(255,255,255,.1);background:#07100b;color:#cfe5dc;font-size:12px;outline:none}}button,.cta{{border:0;border-radius:13px;padding:14px 18px;background:var(--green);color:#031008;font-weight:900;cursor:pointer;text-decoration:none}}.cta{{display:block;text-align:center;margin-top:14px}}.steps{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:25px}}.step{{padding:13px 10px;border-radius:14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06)}}.step b{{display:block;color:var(--green);font-size:11px;margin-bottom:5px}}.step span{{color:#8da79d;font-size:11px;line-height:1.35}}.note{{margin-top:22px;text-align:center;color:#718a81;font-size:11px;line-height:1.55}}@media(max-width:480px){{.card{{padding:25px 18px;border-radius:23px}}.linkbox{{flex-direction:column}}button{{width:100%}}.steps{{gap:5px}}}}
+</style></head><body><div class="wrap"><div class="brand"><span class="mark">M</span> MERCO</div><main class="card"><div class="top"><div class="icon">✓</div><div class="eyebrow">SELLER MODE</div><h1>One link. Your store goes live.</h1><p class="lead">Hi <strong>{safe_name}</strong>. Your seller details have been accepted. Open the secure link below within <strong>5 minutes</strong> to activate your store.</p></div><div class="timer">⏱ <strong>This link expires in 5 minutes.</strong> You only need to open it once.</div><div class="linkbox"><input id="verification-link" value="{safe_link}" readonly><button type="button" onclick="copyLink()">Copy link</button></div><a class="cta" href="{safe_link}">Verify &amp; Open My Store&nbsp; →</a><div class="steps"><div class="step"><b>01 · OPEN</b><span>Tap the verification link.</span></div><div class="step"><b>02 · VERIFY</b><span>Merco confirms your request.</span></div><div class="step"><b>03 · LIVE</b><span>Your store becomes active.</span></div></div><p class="note">No WhatsApp API. No email verification. No admin approval. The signed link is tied to this seller request and expires automatically.</p></main></div><script>function copyLink(){{const x=document.getElementById('verification-link');x.select();navigator.clipboard?.writeText(x.value);}}setTimeout(()=>{{document.querySelector('.timer strong').textContent='This link expires soon.'}},240000);</script></body></html>'''
 
 
 def _activate_seller_fixed():
@@ -82,7 +94,6 @@ def _activate_seller_fixed():
         public_email = _valid_email(request.form.get('contact_email') or current_user.email)
         phone = _normalize_phone(request.form.get('phone_number') or '')
         whatsapp = _normalize_phone(request.form.get('whatsapp') or '')
-        customer_care = ''.join(ch for ch in os.environ.get('MERCO_VERIFICATION_WHATSAPP', '').strip() if ch.isdigit())
         if not seller_name:
             raise ValueError('Please enter a seller/store name.')
         if not public_email:
@@ -91,8 +102,6 @@ def _activate_seller_fixed():
             raise ValueError('Please enter a valid Nigerian phone number, for example 08012345678 or +2348012345678.')
         if not whatsapp:
             raise ValueError('Please enter a valid Nigerian WhatsApp number, for example 08012345678 or +2348012345678.')
-        if not customer_care:
-            raise ValueError('Seller verification is temporarily unavailable. Please contact Merco support.')
         bootstrap.save_contact(current_user, public_email, phone, require_phone=True)
         current_user.pending_seller_name = seller_name
         current_user.pending_seller_email = public_email
@@ -102,13 +111,7 @@ def _activate_seller_fixed():
         current_user.seller_verified = False
         app_module.db.session.commit()
         verification_link = _verification_url(current_user)
-        message = ('Hello Merco Customer Care, I want to open a seller store.\n\n'
-                   f'Name: {seller_name}\nWhatsApp: {whatsapp}\n\n'
-                   'My secure seller verification link is below. I will open it within 5 minutes to activate Seller Mode automatically.\n\n'
-                   f'Verification link: {verification_link}')
-        wa_url = f'https://wa.me/{customer_care}?text={quote(message, safe="")}'
-        flash('Details accepted. WhatsApp is ready with your secure 5-minute verification link.')
-        return redirect(wa_url)
+        return _verification_ready_html(seller_name, verification_link)
     except ValueError as exc:
         app_module.db.session.rollback()
         flash(str(exc))
@@ -126,6 +129,7 @@ def _load_token(token):
     except SignatureExpired:
         raise
     except BadSignature as stable_error:
+        # Keep compatibility with older seller-link tokens.
         try:
             return app_module._serializer().loads(token, max_age=SELLER_VERIFICATION_MAX_AGE)
         except Exception:
@@ -133,44 +137,24 @@ def _load_token(token):
 
 
 def _seller_verification_success_html(name):
-    safe_name = (name or 'Seller').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
-    return f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Seller Verified · Merco</title>
-<style>
-:root{{--bg:#050a08;--panel:#0b1712;--panel2:#0f2018;--green:#00ff88;--text:#e7f5ef;--muted:#91aaa0;--line:rgba(0,255,136,.16)}}
-*{{box-sizing:border-box}} body{{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%,rgba(0,255,136,.12),transparent 36%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;place-items:center;padding:24px;overflow-x:hidden}}
-body:before{{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);background-size:36px 36px;mask-image:linear-gradient(to bottom,#000,transparent 80%)}}
-.shell{{width:min(100%,560px);position:relative}} .brand{{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:18px;font-weight:800;letter-spacing:.08em;font-size:18px}} .brand-mark{{width:38px;height:38px;border:1px solid rgba(0,255,136,.5);border-radius:12px;display:grid;place-items:center;color:var(--green);font-size:20px;font-weight:900;box-shadow:0 0 28px rgba(0,255,136,.12)}}
-.card{{position:relative;background:linear-gradient(145deg,rgba(15,32,24,.96),rgba(7,15,11,.98));border:1px solid var(--line);border-radius:28px;padding:38px 34px;box-shadow:0 28px 80px rgba(0,0,0,.45),0 0 55px rgba(0,255,136,.07);text-align:center;overflow:hidden}} .card:after{{content:"";position:absolute;top:-90px;right:-80px;width:220px;height:220px;background:rgba(0,255,136,.08);filter:blur(45px);border-radius:50%}}
-.icon{{width:82px;height:82px;margin:0 auto 22px;border-radius:24px;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.28);display:grid;place-items:center;color:var(--green);font-size:42px;font-weight:700;box-shadow:0 0 45px rgba(0,255,136,.12)}}
-.badge{{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);color:var(--green);font-size:11px;font-weight:800;letter-spacing:.12em}} h1{{font-size:clamp(28px,7vw,42px);line-height:1.08;margin:16px 0 12px;letter-spacing:-.035em}} .lead{{color:var(--muted);line-height:1.7;font-size:15px;margin:0 auto;max-width:440px}}
-.steps{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:28px 0;text-align:left}} .step{{padding:14px 11px;border:1px solid rgba(255,255,255,.07);border-radius:15px;background:rgba(255,255,255,.025)}} .step b{{display:block;color:var(--green);font-size:12px;margin-bottom:5px}} .step span{{color:#b5c9c1;font-size:11px;line-height:1.35}}
-.cta{{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:15px 20px;border-radius:14px;background:var(--green);color:#031008;text-decoration:none;font-weight:850;box-shadow:0 10px 28px rgba(0,255,136,.16);transition:transform .18s,box-shadow .18s}} .cta:hover{{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,255,136,.24)}} .sub{{display:block;margin-top:14px;color:#708980;text-decoration:none;font-size:13px}} .secure{{margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,.07);color:#708980;font-size:11px;line-height:1.55}} .secure strong{{color:#a9c1b8}} @media(max-width:480px){{body{{padding:14px}}.card{{padding:30px 20px;border-radius:23px}}.steps{{gap:6px}}.step{{padding:11px 8px}}}}
-</style></head>
-<body><div class="shell"><div class="brand"><span class="brand-mark">M</span><span>MERCO</span></div>
-<main class="card"><div class="icon">✓</div><div class="badge">● SELLER VERIFIED</div><h1>Your store is live.</h1><p class="lead">Welcome, <strong>{safe_name}</strong>. Your Seller Mode has been activated successfully and your Merco storefront is ready.</p>
-<div class="steps"><div class="step"><b>01 · VERIFIED</b><span>Your seller account is confirmed.</span></div><div class="step"><b>02 · ACTIVE</b><span>Your storefront is now available.</span></div><div class="step"><b>03 · READY</b><span>Log in to manage your store.</span></div></div>
-<a class="cta" href="/login">Continue to Merco <span>→</span></a><a class="sub" href="/">Back to home</a><div class="secure"><strong>Secure verification</strong><br>Your signed verification link was valid for 5 minutes and could only activate the matching seller request.</div>
-</main></div></body></html>'''
+    safe_name = html.escape(name or 'Seller')
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Seller Verified · Merco</title><style>
+:root{{--bg:#050a08;--panel:#0b1712;--green:#00ff88;--text:#e7f5ef;--muted:#91aaa0;--line:rgba(0,255,136,.16)}}*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0%,rgba(0,255,136,.12),transparent 36%),var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;display:grid;place-items:center;padding:24px}}.card{{width:min(100%,560px);padding:38px 34px;text-align:center;background:linear-gradient(145deg,rgba(15,32,24,.98),rgba(7,15,11,.99));border:1px solid var(--line);border-radius:28px;box-shadow:0 28px 80px rgba(0,0,0,.45)}}.mark{{font-weight:900;letter-spacing:.12em;margin-bottom:25px;color:var(--green)}}.icon{{width:82px;height:82px;margin:auto;border-radius:24px;display:grid;place-items:center;background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.3);color:var(--green);font-size:44px}}.badge{{display:inline-block;margin-top:20px;padding:7px 12px;border-radius:999px;color:var(--green);background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.2);font-size:11px;font-weight:900;letter-spacing:.12em}}h1{{font-size:40px;margin:15px 0 10px}}p{{color:var(--muted);line-height:1.7}}.cta{{display:block;margin-top:25px;padding:15px;border-radius:14px;background:var(--green);color:#031008;text-decoration:none;font-weight:900}}.note{{font-size:11px;margin-top:20px;color:#718a81}}@media(max-width:480px){{.card{{padding:30px 20px}}h1{{font-size:32px}}}}
+</style></head><body><main class="card"><div class="mark">M · MERCO</div><div class="icon">✓</div><div class="badge">● SELLER VERIFIED</div><h1>Your store is live.</h1><p>Welcome, <strong>{safe_name}</strong>. Your Seller Mode has been activated successfully and your Merco storefront is ready.</p><a class="cta" href="/login">Continue to Merco →</a><p class="note">Your secure verification link has been used successfully.</p></main></body></html>'''
 
 
 def _verify_seller_whatsapp_fixed(token):
     try:
         data = _load_token(token)
-        if data.get('purpose') != 'seller-whatsapp':
+        if data.get('purpose') not in ('seller-link', 'seller-whatsapp'):
             raise BadSignature()
         user_id = int(data['id'])
-        token_whatsapp = _normalize_phone(str(data.get('whatsapp') or ''))
-        if not token_whatsapp:
-            raise BadSignature()
         user = app_module.User.query.filter_by(id=user_id).first()
         if not user:
             raise BadSignature()
-        stored_whatsapp = _normalize_phone(user.pending_seller_whatsapp or '')
         if user.role == 'seller' and user.seller_verified:
             return _seller_verification_success_html(user.username or 'Seller')
-        if user.role != 'buyer' or user.seller_verification_status != 'pending' or not stored_whatsapp or stored_whatsapp != token_whatsapp:
+        if user.role != 'buyer' or user.seller_verification_status != 'pending':
             flash('This seller verification link is no longer valid. Start Seller Mode again to get a new link.')
             return redirect(url_for('settings') if current_user.is_authenticated else url_for('login'))
         seller_name = (user.pending_seller_name or user.username or 'Merco Seller').strip()[:100]
@@ -178,7 +162,8 @@ def _verify_seller_whatsapp_fixed(token):
         user.role = 'seller'
         user.username = seller_name
         user.seller_slug = slug
-        user.whatsapp_number = user.pending_seller_whatsapp
+        if user.pending_seller_whatsapp:
+            user.whatsapp_number = user.pending_seller_whatsapp
         user.seller_verified = True
         user.seller_verification_status = 'verified'
         user.pending_seller_name = None
