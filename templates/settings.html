@@ -13,20 +13,24 @@
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
   <div class="eyebrow">SELLER MODE</div><h2>Your store is live</h2>
   <div class="panel" style="margin-top:18px;border-color:rgba(0,255,136,.28);background:linear-gradient(135deg,rgba(0,255,136,.07),rgba(7,7,6,.65))">
-    <div style="display:flex;gap:14px;align-items:flex-start"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(0,255,136,.1);color:#00ff88;font-size:24px">✓</div><div><div class="eyebrow">STORE READY</div><h3 style="margin:5px 0 8px">{{ current_user.username }}</h3><p style="margin:0">Your storefront is ready. Open it whenever you want.</p></div></div>
-    <a class="btn" style="margin-top:18px" href="{{ url_for('seller_open', seller_slug=current_user.seller_slug) }}">Open my store <i class="ri-store-2-line"></i></a>
+    <div style="display:flex;gap:14px;align-items:flex-start"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(0,255,136,.1);color:#00ff88;font-size:24px">✓</div><div><div class="eyebrow">STORE READY</div><h3 style="margin:5px 0 8px">{{ current_user.username }}</h3><p style="margin:0">Your storefront is ready. Manage products, payments, and your store from Seller Dashboard.</p></div></div>
+    <a class="btn" style="margin-top:18px" href="{{ url_for('seller_dashboard') }}"><i class="ri-dashboard-3-line"></i> Open Seller Dashboard</a>
   </div>
   {% else %}
   <hr style="border:0;border-top:1px solid var(--line);margin:30px 0">
-  <div class="eyebrow">SELLER MODE</div><h2>Open your storefront</h2>
-  <p>Turn your account into a seller account instantly. There is no verification step, OTP, approval, or waiting period.</p>
+  <div class="eyebrow">START SELLING</div>
+  <h2>Become a Seller on Merco</h2>
+  <p>Have something to sell? Create your storefront instantly and get access to your Seller Dashboard, where you can upload, edit, manage and mark products as sold out.</p>
+  <div class="panel" style="margin:18px 0;border-color:rgba(0,255,136,.32);background:linear-gradient(135deg,rgba(0,255,136,.08),rgba(7,7,6,.7))">
+    <div style="display:flex;gap:14px;align-items:flex-start"><div style="width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:rgba(0,255,136,.12);color:#00ff88;font-size:25px;flex:0 0 auto"><i class="ri-store-2-line"></i></div><div><div class="eyebrow">SELLER ACCESS</div><h3 style="margin:4px 0 7px">Create your store now</h3><p style="margin:0">Your seller account is created immediately. No verification, OTP, approval, or waiting period.</p></div></div>
+  </div>
   <form method="post" action="{{ url_for('settings') }}" id="seller-mode-form">
-    <input type="hidden" name="action" value="become_seller"><label class="label">Seller / store name</label><input name="seller_name" value="{{ current_user.username }}" required minlength="2">
+    <input type="hidden" name="action" value="become_seller"><label class="label">Store name</label><input name="seller_name" value="{{ current_user.username }}" required minlength="2" placeholder="Enter your store name">
     <div class="two-col"><div><label class="label">Public email</label><input name="contact_email" type="email" value="{{ current_user.email }}" required autocomplete="email"></div><div><label class="label">Phone for buyers</label><input name="phone_number" type="tel" value="" placeholder="08012345678"></div></div>
     <label class="label">WhatsApp number</label><input name="whatsapp" value="{{ current_user.whatsapp_number or '' }}" placeholder="08012345678" required inputmode="tel">
-    <button class="btn" type="submit">Open Seller Mode <i class="ri-store-2-line"></i></button>
+    <button class="btn" type="submit" style="width:100%;justify-content:center;font-size:1.02rem;padding:14px"><i class="ri-store-add-line"></i> Become a Seller & Create My Store</button>
   </form>
-  <small style="display:block;margin-top:12px;color:var(--muted)"><i class="ri-flashlight-line"></i> Your store is created immediately. The short loading screen is only a visual transition while your storefront opens.</small>
+  <small style="display:block;margin-top:12px;color:var(--muted)"><i class="ri-information-line"></i> After creating your store, you'll go straight to Seller Dashboard to manage your products.</small>
   {% endif %}
 </div>
 {% endblock %}
