@@ -27,6 +27,9 @@ class Notification(db.Model):
 class PushJob(db.Model):
     __tablename__ = 'push_job'
     id = db.Column(db.Integer, primary_key=True)
+    # Existing Railway/Aiven databases require this field even though an
+    # older ORM model did not declare it.
+    user_id = db.Column(db.Integer, nullable=False, index=True)
     notification_id = db.Column(db.Integer, nullable=False, index=True)
     status = db.Column(db.String(20), nullable=False, default='pending', index=True)
     attempts = db.Column(db.Integer, nullable=False, default=0)
@@ -34,16 +37,15 @@ class PushJob(db.Model):
     processed_at = db.Column(db.DateTime, nullable=True)
 
 
-# create_all() only creates missing tables; it does not add columns to an
-# existing Railway/MySQL table. Older Merco databases can therefore be missing
-# newer notification fields (for example `kind`). Repair those columns safely
-# at startup before any notification query/insert runs.
+# create_all() does not modify existing MySQL tables. Repair legacy schemas at
+# startup so notification creation cannot abort seller activation.
 def _repair_notification_schema():
     try:
         db.create_all()
         inspector = inspect(db.engine)
+        tables = set(inspector.get_table_names())
 
-        if 'notification' in inspector.get_table_names():
+        if 'notification' in tables:
             existing = {col['name'] for col in inspector.get_columns('notification')}
             additions = {
                 'kind': "VARCHAR(40) NOT NULL DEFAULT 'general'",
@@ -57,17 +59,15 @@ def _repair_notification_schema():
             for name, definition in additions.items():
                 if name not in existing:
                     db.session.execute(text(f"ALTER TABLE notification ADD COLUMN {name} {definition}"))
-            # Backfill nullable legacy timestamps before making them useful to
-            # ordering code. Leave the column nullable for old rows.
             if 'created_at' not in existing:
                 db.session.execute(text("UPDATE notification SET created_at = UTC_TIMESTAMP() WHERE created_at IS NULL"))
             db.session.commit()
 
-        # Keep the push queue compatible with the same legacy database.
         inspector = inspect(db.engine)
-        if 'push_job' in inspector.get_table_names():
+        if 'push_job' in set(inspector.get_table_names()):
             existing = {col['name'] for col in inspector.get_columns('push_job')}
             additions = {
+                'user_id': "INTEGER NOT NULL DEFAULT 0",
                 'notification_id': "INTEGER NOT NULL DEFAULT 0",
                 'status': "VARCHAR(20) NOT NULL DEFAULT 'pending'",
                 'attempts': "INTEGER NOT NULL DEFAULT 0",
@@ -107,7 +107,13 @@ def create_notification_connection(connection, user_id, kind, title, message, ac
     ))
     notification_id = result.inserted_primary_key[0] if result.inserted_primary_key else None
     if notification_id:
-        connection.execute(PushJob.__table__.insert().values(notification_id=notification_id, status='pending', attempts=0, created_at=datetime.utcnow()))
+        connection.execute(PushJob.__table__.insert().values(
+            user_id=user_id,
+            notification_id=notification_id,
+            status='pending',
+            attempts=0,
+            created_at=datetime.utcnow(),
+        ))
 
 
 @app.get('/api/notifications')
