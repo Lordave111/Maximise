@@ -18,7 +18,6 @@ import seller_verification_fix as seller_fix
 def _seller_store_url(slug):
     if not slug:
         raise ValueError('Seller store was not created correctly.')
-    # app.py's real public storefront endpoint is seller_page.
     return url_for('seller_page', seller_slug=slug, _external=True)
 
 
@@ -47,13 +46,14 @@ def verify_seller(token):
         if not user:
             raise BadSignature()
 
-        # If a previous request already completed, open the store instead of
-        # sending the user back to Settings.
+        # If this user already has an active seller store, the verification
+        # link is simply an entry point to that existing store. Never send an
+        # already-verified seller back to Settings or through verification again.
         if user.role == 'seller' and user.seller_verified:
-            return seller_fix._verification_progress_html(
-                user.username or 'Seller',
-                _seller_store_url(user.seller_slug),
-            )
+            if not user.seller_slug:
+                user.seller_slug = app_module.unique_seller_slug(user.username or 'Seller', user.id)
+                app_module.db.session.commit()
+            return redirect(_seller_store_url(user.seller_slug))
 
         if user.role != 'buyer' or user.seller_verification_status != 'pending':
             flash('This seller verification link is no longer valid. Start Seller Mode again to create a new link.')
@@ -63,9 +63,9 @@ def verify_seller(token):
         if not seller_name:
             raise ValueError('A seller/store name is required.')
 
-        # The contact details must exist. The phone is only checked for valid
-        # Nigerian mobile shape/length; no code is sent and no external service
-        # is called to verify ownership.
+        # The contact details must exist. The phone numbers are only checked
+        # for Nigerian mobile shape/length; no code is sent and no external
+        # service is called to verify ownership.
         public_email = (user.pending_seller_email or user.email or '').strip()
         phone = _phone_exists_and_has_valid_length(user.pending_seller_phone)
         whatsapp = _phone_exists_and_has_valid_length(user.pending_seller_whatsapp)
@@ -85,9 +85,8 @@ def verify_seller(token):
         user.pending_seller_whatsapp = None
         app_module.db.session.commit()
 
-        seller_url = _seller_store_url(slug)
         app.logger.info('SELLER_VERIFICATION_SUCCESS user_id=%s slug=%s', user.id, slug)
-        return seller_fix._verification_progress_html(seller_name, seller_url)
+        return redirect(_seller_store_url(slug))
 
     except SignatureExpired:
         app_module.db.session.rollback()
