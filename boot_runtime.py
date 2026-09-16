@@ -12,13 +12,14 @@ builtins.login_required = login_required
 
 from merco_runtime import app  # noqa: E402
 
-# Seller Mode uses a short-lived signed link opened through normal WhatsApp.
-# No WhatsApp Cloud API is required.
-import seller_verification_fix  # noqa: E402,F401
-
 MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
 os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
+
+# Seller Mode uses a short-lived signed link. No WhatsApp Cloud API is required.
+# Import the seller fix only after the canonical public URL is configured.
+import seller_verification_fix  # noqa: E402,F401
+import seller_store_verification_route  # noqa: E402,F401
 
 # Database-backed integrations must initialize inside an application context.
 with app.app_context():
