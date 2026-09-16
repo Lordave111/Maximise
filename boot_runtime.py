@@ -19,6 +19,7 @@ app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 # Seller Mode is instant: no seller verification, OTP, email code, WhatsApp API,
 # signed seller link, or manual approval is used.
 import seller_mode_simple  # noqa: E402,F401
+import seller_manage  # noqa: E402,F401
 
 # Database-backed integrations must initialize inside an application context.
 with app.app_context():
