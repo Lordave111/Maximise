@@ -1,4 +1,4 @@
-"""Simple Seller Mode: no verification, no OTP, no external checks."""
+"""Simple Seller Mode: instant store creation with a verification-style transition."""
 
 from flask import render_template, redirect, url_for, request, flash
 from flask_login import current_user, login_required
@@ -8,7 +8,9 @@ import app as app_module
 
 
 def _seller_loading(slug):
-    return render_template('seller_loading.html', store_url=url_for('seller_page', seller_slug=slug))
+    # Use the explicitly registered public storefront route. This avoids the
+    # BuildError that can occur when the legacy seller_page endpoint is replaced.
+    return render_template('seller_loading.html', store_url=url_for('public_store', seller_slug=slug))
 
 
 @app.get('/seller/open/<seller_slug>')
@@ -48,7 +50,6 @@ def simple_settings():
             app_module.db.session.commit()
             return _seller_loading(slug)
 
-        # Keep the original settings behavior for profile/preferences posts.
         original = app.view_functions.get('settings_original')
         if original:
             return original()
@@ -56,8 +57,6 @@ def simple_settings():
     return render_template('settings.html')
 
 
-# Preserve the original settings function, then replace the endpoint with the
-# simple Seller Mode handler. This keeps all existing profile/preferences logic.
 _original_settings = app.view_functions.get('settings')
 if _original_settings:
     app.view_functions['settings_original'] = _original_settings
