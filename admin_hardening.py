@@ -31,9 +31,7 @@ def _admin_dashboard_hardened():
     if search:
         term = f'%{search}%'
         if search.isdigit():
-            query = query.filter(
-                or_(User.username.ilike(term), User.email.ilike(term), User.id == int(search))
-            )
+            query = query.filter(or_(User.username.ilike(term), User.email.ilike(term), User.id == int(search)))
         else:
             query = query.filter(or_(User.username.ilike(term), User.email.ilike(term)))
 
@@ -57,143 +55,69 @@ def _admin_dashboard_hardened():
 @app.post('/admin/user/<int:id>/delete', endpoint='admin_delete_user_hardened')
 @login_required
 def admin_delete_user_hardened(id):
-    """Delete an account directly at database level without ORM cascades."""
+    """Simple admin deletion: delete the user's products, then the user row."""
     denied = _admin_only()
     if denied:
         return denied
 
-    dialect = db.engine.dialect.name
-    user_table = '`user`' if dialect == 'mysql' else '"user"'
-
-    row = db.session.execute(
-        text(f'SELECT id, username, role FROM {user_table} WHERE id = :uid'),
-        {'uid': id},
-    ).mappings().first()
-
-    if not row:
-        flash('User not found.')
-        return redirect(url_for('admin_dashboard'))
-
-    if int(row['id']) == int(current_user.id):
+    if id == current_user.id:
         flash('You cannot delete your own admin account.')
         return redirect(url_for('admin_dashboard'))
 
-    if row['role'] == 'admin':
-        flash('Admin accounts are protected from deletion in this panel.')
-        return redirect(url_for('admin_dashboard'))
-
-    username = row['username']
     engine = db.engine
-    quote_name = engine.dialect.identifier_preparer.quote
-    product_table = quote_name('product')
-    user_table_quoted = quote_name('user')
+    dialect = engine.dialect.name
+    user_table = '`user`' if dialect == 'mysql' else '"user"'
+    product_table = '`product`' if dialect == 'mysql' else '"product"'
 
     try:
-        inspector = inspect(engine)
-        tables = inspector.get_table_names()
-        table_columns = {}
-
-        for table in tables:
-            try:
-                table_columns[table] = {column['name'] for column in inspector.get_columns(table)}
-            except Exception:
-                table_columns[table] = set()
-
         with engine.begin() as connection:
+            # We intentionally do not use SQLAlchemy ORM deletion here.
+            # Delete the seller's products first, then the account itself.
+            # MySQL FK checks are disabled for this tiny transaction so legacy
+            # tables cannot make the simple deletion fail.
             if dialect == 'mysql':
-                connection.execute(text('SET FOREIGN_KEY_CHECKS=0'))
+                connection.execute(text('SET FOREIGN_KEY_CHECKS = 0'))
 
             try:
-                product_ids = []
-                product_columns = table_columns.get('product', set())
+                row = connection.execute(
+                    text(f'SELECT username, role FROM {user_table} WHERE id = :id'),
+                    {'id': id},
+                ).mappings().first()
 
-                if 'seller_id' in product_columns:
-                    product_rows = connection.execute(
-                        text(f'SELECT id FROM {product_table} WHERE seller_id = :uid'),
-                        {'uid': id},
-                    ).fetchall()
-                    product_ids = [int(product_row[0]) for product_row in product_rows]
+                if not row:
+                    flash('User not found.')
+                    return redirect(url_for('admin_dashboard'))
 
-                if product_ids:
-                    for table, columns in table_columns.items():
-                        if table in {'user', 'product'} or 'product_id' not in columns:
-                            continue
-
-                        placeholders = ', '.join(
-                            f':product_{index}' for index in range(len(product_ids))
-                        )
-                        params = {
-                            f'product_{index}': value
-                            for index, value in enumerate(product_ids)
-                        }
-                        quoted_table = quote_name(table)
-                        connection.execute(
-                            text(
-                                f'DELETE FROM {quoted_table} '
-                                f'WHERE product_id IN ({placeholders})'
-                            ),
-                            params,
-                        )
-
-                user_reference_columns = (
-                    'user_id',
-                    'buyer_id',
-                    'seller_id',
-                    'viewer_id',
-                    'owner_id',
-                    'follower_id',
-                    'following_id',
-                    'account_id',
-                )
-
-                for table, columns in table_columns.items():
-                    if table == 'user' or not columns:
-                        continue
-
-                    matches = [
-                        column
-                        for column in user_reference_columns
-                        if column in columns
-                    ]
-                    if not matches:
-                        continue
-
-                    quoted_table = quote_name(table)
-                    conditions = ' OR '.join(
-                        f'{quote_name(column)} = :uid'
-                        for column in matches
-                    )
-                    connection.execute(
-                        text(f'DELETE FROM {quoted_table} WHERE {conditions}'),
-                        {'uid': id},
-                    )
-
-                if 'seller_id' in product_columns:
-                    connection.execute(
-                        text(f'DELETE FROM {product_table} WHERE seller_id = :uid'),
-                        {'uid': id},
-                    )
+                if row['role'] == 'admin':
+                    flash('Admin accounts are protected from deletion.')
+                    return redirect(url_for('admin_dashboard'))
 
                 connection.execute(
-                    text(f'DELETE FROM {user_table_quoted} WHERE id = :uid'),
-                    {'uid': id},
+                    text(f'DELETE FROM {product_table} WHERE seller_id = :id'),
+                    {'id': id},
                 )
+                connection.execute(
+                    text(f'DELETE FROM {user_table} WHERE id = :id'),
+                    {'id': id},
+                )
+
+                username = row['username']
             finally:
                 if dialect == 'mysql':
-                    connection.execute(text('SET FOREIGN_KEY_CHECKS=1'))
+                    connection.execute(text('SET FOREIGN_KEY_CHECKS = 1'))
 
-        flash(f'{username} was permanently deleted.')
+        # Clear any stale ORM state after the direct SQL operation.
+        db.session.expire_all()
+        flash(f'{username} and their products were permanently deleted.')
     except Exception:
         db.session.rollback()
-        app.logger.exception(
-            'Direct database admin user deletion failed for user %s',
-            id,
-        )
-        flash('The user could not be deleted. The database was left unchanged.')
+        app.logger.exception('Admin deletion failed for user %s', id)
+        flash('Could not delete the user from the database.')
 
     return redirect(url_for('admin_dashboard'))
 
 
+# Keep the endpoint used by the existing admin template.
 app.view_functions['admin_delete_user_safe'] = admin_delete_user_hardened
 app.view_functions['admin_delete_user_hardened'] = admin_delete_user_hardened
 app.view_functions['admin_dashboard'] = _admin_dashboard_hardened
@@ -213,10 +137,7 @@ def _ensure_suspension_column():
             definition = 'DATETIME NULL' if dialect_name == 'mysql' else 'TIMESTAMP NULL'
             with db.engine.begin() as connection:
                 connection.execute(
-                    text(
-                        f'ALTER TABLE {quoted} '
-                        f'ADD COLUMN suspended_until {definition}'
-                    )
+                    text(f'ALTER TABLE {quoted} ADD COLUMN suspended_until {definition}')
                 )
 
 
@@ -244,11 +165,9 @@ def _is_suspended(user):
 
 def block_suspended_accounts():
     """Prevent suspended buyers/sellers from using the marketplace."""
-    from flask_login import current_user as _current_user
-
-    if not _current_user.is_authenticated or _current_user.role == 'admin':
+    if not current_user.is_authenticated or current_user.role == 'admin':
         return None
-    if not _is_suspended(_current_user):
+    if not _is_suspended(current_user):
         return None
 
     logout_user()
