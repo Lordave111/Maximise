@@ -16,10 +16,9 @@ MERCO_RAILWAY_URL = 'https://maximise-production.up.railway.app'
 os.environ['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 app.config['MERCO_PUBLIC_URL'] = MERCO_RAILWAY_URL
 
-# Seller Mode uses a short-lived signed link. No WhatsApp Cloud API is required.
-# Import the seller fix only after the canonical public URL is configured.
-import seller_verification_fix  # noqa: E402,F401
-import seller_store_verification_route  # noqa: E402,F401
+# Seller Mode is instant: no seller verification, OTP, email code, WhatsApp API,
+# signed seller link, or manual approval is used.
+import seller_mode_simple  # noqa: E402,F401
 
 # Database-backed integrations must initialize inside an application context.
 with app.app_context():
