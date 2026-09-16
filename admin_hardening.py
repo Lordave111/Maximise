@@ -50,7 +50,7 @@ def _admin_dashboard_hardened():
     )
 
 
-@app.post('/admin/user/<int:id>/delete')
+@app.post('/admin/user/<int:id>/delete', endpoint='admin_delete_user_hardened')
 @login_required
 def admin_delete_user_hardened(id):
     denied = _admin_only()
@@ -69,17 +69,18 @@ def admin_delete_user_hardened(id):
         inspector = inspect(db.engine)
         tables = inspector.get_table_names()
         preparer = db.engine.dialect.identifier_preparer
-        product_ids = [p.id for p in list(user.products)]
+        products = list(user.products)
+        product_ids = [p.id for p in products]
 
         delete_files = getattr(app_module, 'delete_product_files', None)
         if delete_files:
-            for product in list(user.products):
+            for product in products:
                 try:
                     delete_files(product)
                 except Exception:
                     app.logger.exception('Could not remove files for product %s', product.id)
 
-        # Remove rows in auxiliary tables that point at this user's products.
+        # Clean product-dependent records before removing the seller's products.
         for table in tables:
             if table in {'user', 'product'} or not product_ids:
                 continue
@@ -92,9 +93,11 @@ def admin_delete_user_hardened(id):
                 for product_id in product_ids:
                     db.session.execute(text(f'DELETE FROM {quoted} WHERE product_id = :pid'), {'pid': product_id})
 
-        # Remove every known style of user reference. This includes the push
-        # queue, which previously caused deletion to fail on production.
-        user_reference_columns = ('user_id', 'buyer_id', 'seller_id', 'viewer_id', 'owner_id', 'follower_id', 'following_id')
+        # Clean every common user relationship, including push_job and followers.
+        user_reference_columns = (
+            'user_id', 'buyer_id', 'seller_id', 'viewer_id',
+            'owner_id', 'follower_id', 'following_id'
+        )
         for table in tables:
             if table == 'user':
                 continue
@@ -109,16 +112,16 @@ def admin_delete_user_hardened(id):
             conditions = ' OR '.join(f'{preparer.quote(column)} = :uid' for column in matches)
             db.session.execute(text(f'DELETE FROM {quoted} WHERE {conditions}'), {'uid': user.id})
 
-        # MySQL deployments may have legacy foreign keys not represented in
-        # the ORM. Temporarily disable checks for this single DB session after
-        # all user/product references have been explicitly cleaned.
-        if db.engine.dialect.name == 'mysql':
+        # Legacy MySQL foreign keys can exist outside the ORM model. Disable
+        # them only for the final deletion after dependent rows were cleaned.
+        mysql = db.engine.dialect.name == 'mysql'
+        if mysql:
             db.session.execute(text('SET FOREIGN_KEY_CHECKS=0'))
         try:
             db.session.delete(user)
             db.session.commit()
         finally:
-            if db.engine.dialect.name == 'mysql':
+            if mysql:
                 db.session.execute(text('SET FOREIGN_KEY_CHECKS=1'))
                 db.session.commit()
 
@@ -137,5 +140,7 @@ def admin_delete_user_hardened(id):
     return redirect(url_for('admin_dashboard'))
 
 
-# Register after adminfix so this hardened implementation wins.
+# Make the existing admin template action use the hardened route.
+app.view_functions['admin_delete_user_safe'] = admin_delete_user_hardened
+app.view_functions['admin_delete_user_hardened'] = admin_delete_user_hardened
 app.view_functions['admin_dashboard'] = _admin_dashboard_hardened
