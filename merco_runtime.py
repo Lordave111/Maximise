@@ -34,9 +34,11 @@ def _security_headers(response):
 
 
 def _verification_token(user):
+    # Seller verification is WhatsApp-only. Do not put the account email into
+    # the signed capability token; the email field remains available elsewhere
+    # in the account/profile as a normal contact field.
     return app_module._serializer().dumps({
         'id': user.id,
-        'email': user.email,
         'whatsapp': user.pending_seller_whatsapp,
         'purpose': 'seller-whatsapp',
     })
@@ -73,7 +75,6 @@ def _activate_seller():
         message = (
             f"Hello Merco Support, I want to open a seller store.\n\n"
             f"Name: {seller_name}\n"
-            f"Merco account: {current_user.email}\n"
             f"WhatsApp: {whatsapp}\n\n"
             f"Open this Merco verification link within 5 minutes to automatically activate Seller Mode.\n"
             f"No manual approval or admin login is required.\n"
@@ -98,9 +99,8 @@ def _verify_seller_whatsapp(token):
         if data.get('purpose') != 'seller-whatsapp':
             raise BadSignature()
         user_id = int(data['id'])
-        email = str(data['email']).strip()
         token_whatsapp = str(data.get('whatsapp') or '').strip()
-        user = app_module.User.query.filter_by(id=user_id, email=email).first()
+        user = app_module.User.query.filter_by(id=user_id).first()
         if not user:
             raise BadSignature()
         # A verification link is a short-lived capability. It must still match
@@ -134,6 +134,24 @@ def _verify_seller_whatsapp(token):
 
 
 app.add_url_rule('/verify-seller-whatsapp/<token>', endpoint='verify_seller_whatsapp', view_func=_verify_seller_whatsapp)
+
+
+def _seller_access_gate():
+    """Never expose seller store/management routes to an unverified seller."""
+    if not current_user.is_authenticated or current_user.role != 'seller' or getattr(current_user, 'seller_verified', False):
+        return None
+    path = request.path.rstrip('/') or '/'
+    seller_only_prefixes = (
+        '/seller', '/upload', '/add-product', '/edit-product', '/delete-product',
+        '/seller-dashboard', '/my-store', '/store/manage',
+    )
+    if path.startswith(seller_only_prefixes):
+        flash('Complete WhatsApp verification before opening or managing your seller store.')
+        return redirect(url_for('settings'))
+    return None
+
+
+app.before_request(_seller_access_gate)
 
 
 def _production_settings():
